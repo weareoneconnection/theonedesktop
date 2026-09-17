@@ -51,16 +51,32 @@ test('API key shape', () => {
   assert.equal(policy.looksLikeAnthropicKey('hello'), false);
 });
 
-test('keeps only GitHub sign-in pages in the window', () => {
-  const { isSignInNavigation } = require('../src/policy');
-  assert.equal(isSignInNavigation('https://github.com/login/oauth/authorize?client_id=x'), true);
-  assert.equal(isSignInNavigation('https://github.com/login'), true);
-  assert.equal(isSignInNavigation('https://github.com/sessions/two-factor/app'), true);
-  assert.equal(isSignInNavigation('https://github.com/session'), true);
-  assert.equal(isSignInNavigation('https://github.com/loginevil'), false);
-  assert.equal(isSignInNavigation('https://github.com/settings/tokens'), false);
-  assert.equal(isSignInNavigation('http://github.com/login'), false);
-  assert.equal(isSignInNavigation('https://github.com.evil.io/login'), false);
+test('sends a sign-in start to the browser and keeps where to come back to', () => {
+  const env = {};
+  assert.equal(policy.signInStart('https://theone-eta.vercel.app/api/auth/github?returnTo=%2Fos%3Ftask%3Dabc', env), '/os?task=abc');
+  assert.equal(policy.signInStart('https://theone-eta.vercel.app/api/auth/github', env), '/os');
+  assert.equal(policy.signInStart('https://theone-eta.vercel.app/api/auth/github?returnTo=https://evil.example', env), '/os');
+  assert.equal(policy.signInStart('https://theone-eta.vercel.app/api/auth/github/callback?code=x', env), null);
+  assert.equal(policy.signInStart('https://evil.example/api/auth/github', env), null);
+  assert.equal(policy.signInStart('https://github.com/login', env), null);
+});
+
+test('reads only a well-formed theone://auth code', () => {
+  const code = 'a'.repeat(43);
+  assert.equal(policy.authLinkCode(`theone://auth?code=${code}&returnTo=%2Fos`), code);
+  assert.equal(policy.authLinkCode('theone://auth?code=short'), null);
+  assert.equal(policy.authLinkCode(`theone://task?code=${code}`), null);
+  assert.equal(policy.authLinkCode(`https://auth?code=${code}`), null);
+  assert.equal(policy.deepLinkPath(`theone://auth?code=${code}`), null);
+});
+
+test('the challenge is the SHA-256 of a verifier that stays in the app', () => {
+  const crypto = require('node:crypto');
+  const { verifier, challenge } = policy.signInPair();
+  assert.match(verifier, /^[A-Za-z0-9_-]{43}$/);
+  assert.match(challenge, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(challenge, crypto.createHash('sha256').update(verifier).digest('base64url'));
+  assert.notEqual(policy.signInPair().verifier, verifier);
 });
 
 test('updates run only in the packaged app and can be switched off', () => {

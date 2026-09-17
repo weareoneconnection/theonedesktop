@@ -12,7 +12,7 @@
 const { app, BrowserWindow, Menu, Notification, safeStorage, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const { deepLinkPath, isAllowedOrigin, isSignInNavigation, startUrl, updateMenuItem } = require('./policy');
+const { authLinkCode, deepLinkPath, isAllowedOrigin, signInPair, signInStart, startUrl, updateMenuItem } = require('./policy');
 const { createUpdater } = require('./updater');
 const { LocalRuntime } = require('./runtime');
 const { Settings } = require('./settings');
@@ -34,7 +34,9 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
-app.setAsDefaultProtocolClient('theone');
+// Only the installed app claims theone:// — a development or test instance
+// registering itself would send the person's sign-in links to the wrong app.
+if (app.isPackaged) app.setAsDefaultProtocolClient('theone');
 
 
 let mainWindow = null;
@@ -60,6 +62,39 @@ let quitting = false;
 
 function send(event) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('desktop:event', event);
+}
+
+// Browser sign-in in progress: the verifier stays here until the hand-off.
+let pendingSignIn = null;
+const SIGN_IN_WINDOW_MS = 10 * 60 * 1000;
+
+function startBrowserSignIn(returnTo) {
+  const { verifier, challenge } = signInPair();
+  pendingSignIn = { verifier, returnTo, expiresAt: Date.now() + SIGN_IN_WINDOW_MS };
+  const url = new URL('/api/auth/github', START_ORIGIN);
+  url.searchParams.set('returnTo', returnTo);
+  url.searchParams.set('desktop', challenge);
+  shell.openExternal(url.toString());
+  notify('在浏览器中登录', '完成 GitHub 登录后会自动回到 TheOne。');
+}
+
+function completeBrowserSignIn(code) {
+  const pending = pendingSignIn;
+  pendingSignIn = null;
+  if (!pending || pending.expiresAt < Date.now()) {
+    log('sign-in link arrived without a sign-in in progress');
+    notify('登录没有完成', '请在 TheOne 里重新点击登录。');
+    return;
+  }
+  const url = new URL('/api/auth/desktop/exchange', START_ORIGIN);
+  url.searchParams.set('code', code);
+  url.searchParams.set('verifier', pending.verifier);
+  url.searchParams.set('returnTo', pending.returnTo);
+  if (!mainWindow) createWindow();
+  mainWindow.loadURL(url.toString());
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
 }
 
 function navigateTo(pathname) {
@@ -231,7 +266,13 @@ function createWindow() {
   // Only TheOne loads in this window. Everything else is the browser's job,
   // and never receives the desktop bridge.
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (isAllowedOrigin(url) || isSignInNavigation(url) || url.startsWith('data:')) return;
+    const returnTo = signInStart(url);
+    if (returnTo) {
+      event.preventDefault();
+      startBrowserSignIn(returnTo);
+      return;
+    }
+    if (isAllowedOrigin(url) || url.startsWith('data:')) return;
     event.preventDefault();
     if (/^https?:/.test(url)) shell.openExternal(url);
   });
@@ -253,6 +294,12 @@ function createWindow() {
 
 app.on('open-url', (event, link) => {
   event.preventDefault();
+  const code = authLinkCode(link);
+  if (code) {
+    if (app.isReady()) completeBrowserSignIn(code);
+    else app.whenReady().then(() => completeBrowserSignIn(code));
+    return;
+  }
   const target = deepLinkPath(link);
   if (!target) return;
   if (mainWindow) navigateTo(target);
@@ -261,7 +308,8 @@ app.on('open-url', (event, link) => {
 
 app.on('second-instance', (_event, argv) => {
   const link = argv.find((arg) => arg.startsWith('theone://'));
-  if (link && deepLinkPath(link)) navigateTo(deepLinkPath(link));
+  if (link && authLinkCode(link)) completeBrowserSignIn(authLinkCode(link));
+  else if (link && deepLinkPath(link)) navigateTo(deepLinkPath(link));
   else if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); }
 });
 

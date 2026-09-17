@@ -5,6 +5,7 @@
  * with node --test.
  */
 
+const crypto = require('node:crypto');
 const path = require('node:path');
 
 const PRODUCTION_URL = 'https://theone-eta.vercel.app/os';
@@ -37,18 +38,36 @@ function isAllowedOrigin(url, env = process.env) {
 }
 
 /**
- * GitHub sign-in pages the window may show in place.
+ * The window asking to start GitHub sign-in (TheOne's /api/auth/github).
  *
- * TheOne's session cookie has to land in this window's cookie jar, so the
- * OAuth round trip (and GitHub's own login and two-factor pages on the way)
- * stays in the window. These pages never get the bridge: the preload and the
- * IPC handlers both answer TheOne's origin only.
+ * Sign-in does not happen in the window: Google and Apple refuse embedded
+ * windows, and the person's browser already has their GitHub session,
+ * passwords and passkeys. The app opens it in the browser instead and gets the
+ * session handed back through theone://auth. Returns the page to come back
+ * to, or null when the URL is not a sign-in start.
  */
-function isSignInNavigation(url) {
+function signInStart(url, env = process.env) {
   let parsed;
-  try { parsed = new URL(url); } catch { return false; }
-  if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com') return false;
-  return /^\/(login(\/|$)|session(s)?(\/|$))/.test(parsed.pathname);
+  try { parsed = new URL(url); } catch { return null; }
+  if (!isAllowedOrigin(url, env) || parsed.pathname !== '/api/auth/github') return null;
+  const returnTo = parsed.searchParams.get('returnTo') || '/os';
+  return returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/os';
+}
+
+/** The one-time code from theone://auth?code=…, or null. */
+function authLinkCode(link) {
+  let url;
+  try { url = new URL(link); } catch { return null; }
+  if (url.protocol !== 'theone:' || url.hostname !== 'auth') return null;
+  const code = url.searchParams.get('code') || '';
+  return /^[A-Za-z0-9_-]{43}$/.test(code) ? code : null;
+}
+
+/** A PKCE-style pair: the verifier stays in the app, the challenge goes to the browser. */
+function signInPair(randomBytes = crypto.randomBytes) {
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+  return { verifier, challenge };
 }
 
 /** The TheOne path for a theone:// link: theone://task/<id>, theone://code/new, theone://os. */
@@ -59,6 +78,8 @@ function deepLinkPath(link) {
   const parts = [url.hostname, ...url.pathname.split('/')].filter(Boolean);
   if (parts[0] === 'task' && /^[A-Za-z0-9:_-]{4,80}$/.test(parts[1] || '')) return `/os?task=${encodeURIComponent(parts[1])}`;
   if (parts[0] === 'code' && parts[1] === 'new') return '/os?code=new';
+  // theone://auth is the sign-in hand-off, handled on its own.
+  if (parts[0] === 'auth') return null;
   return '/os';
 }
 
@@ -205,7 +226,9 @@ module.exports = {
   startUrl,
   allowedOrigins,
   isAllowedOrigin,
-  isSignInNavigation,
+  signInStart,
+  authLinkCode,
+  signInPair,
   deepLinkPath,
   toLocalId,
   fromLocalId,
