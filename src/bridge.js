@@ -98,6 +98,20 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     return { task, approvals };
   });
 
+  // A running task's log from a cursor, so a local task streams the same way
+  // a cloud one does instead of re-fetching the whole task every two seconds.
+  handle('desktop:taskLogs', async (taskId, since) => {
+    const id = fromLocalId(taskId);
+    const from = Number.isFinite(Number(since)) && Number(since) >= 0 ? Math.floor(Number(since)) : 0;
+    const body = await runtime.request('GET', `/v1/tasks/${encodeURIComponent(id)}/logs?since=${from}`);
+    return {
+      logs: Array.isArray(body && body.logs) ? body.logs : [],
+      cursor: Number(body && body.cursor) || from,
+      status: String((body && body.status) || ''),
+      done: Boolean(body && body.done),
+    };
+  });
+
   handle('desktop:pendingTasks', async () => {
     if (runtime.state.status !== 'ready') return [];
     const list = await pendingFor(null);

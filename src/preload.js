@@ -24,6 +24,8 @@ if (allowed.includes(window.location.origin)) {
     /** Sign in to, or install, an engine that is not ready yet. */
     engineSetup: (engine) => ipcRenderer.invoke('desktop:engineSetup', engine),
     getTask: (taskId) => ipcRenderer.invoke('desktop:getTask', taskId),
+    /** New log lines for a running task, from a cursor. */
+    taskLogs: (taskId, since) => ipcRenderer.invoke('desktop:taskLogs', taskId, since),
     pendingTasks: () => ipcRenderer.invoke('desktop:pendingTasks'),
     taskAction: (taskId, action) => ipcRenderer.invoke('desktop:taskAction', taskId, action),
     steerTask: (taskId, message) => ipcRenderer.invoke('desktop:steerTask', taskId, message),
