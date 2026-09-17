@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('settingsApi', {
   get: () => ipcRenderer.invoke('settings:get'),
   setApiKey: (value) => ipcRenderer.invoke('settings:setApiKey', value),
   forgetWorkspace: (folder) => ipcRenderer.invoke('settings:forgetWorkspace', folder),
+  restartRuntime: () => ipcRenderer.invoke('settings:restartRuntime'),
   engines: () => ipcRenderer.invoke('settings:engines'),
   engineSetup: (engine) => ipcRenderer.invoke('settings:engineSetup', engine),
 });

@@ -179,6 +179,19 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
     return { hasApiKey: settings.hasApiKey, runtime: state };
   });
+  // Bring the local runtime back without quitting the app. It can die for
+  // reasons that have nothing to do with the app — a crash, the machine
+  // sleeping, someone killing the process — and until now the only way back
+  // was to quit and reopen.
+  ipcMain.handle('settings:restartRuntime', async (event) => {
+    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
+    // The same key the app started the runtime with, decrypted from the keychain.
+    const state = await runtime.restart(settings.devApiKey || settings.getApiKey());
+    const window = getWindow();
+    if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
+    return { runtime: state, hasApiKey: settings.hasApiKey };
+  });
+
   ipcMain.handle('settings:engines', async (event) => {
     if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
     return listEngines(runtime);

@@ -47,6 +47,9 @@
     <h2>本机运行时</h2>
     <p>在这台 Mac 上执行任务的 Agent 引擎，只接受本机连接。</p>
     <div class="status" id="runtime"></div>
+    <div class="row" style="margin-top:10px">
+      <button id="restart" class="ghost">重启运行时</button>
+    </div>
   </section>
   <section>
     <h2>执行引擎</h2>
@@ -126,6 +129,18 @@
       $('keyStatus').innerHTML = `<span class="bad">${String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}</span>`;
     }
   }
+  $('restart').onclick = async () => {
+    const button = $('restart');
+    button.disabled = true;
+    $('runtime').textContent = '正在重启…';
+    try {
+      const r = await window.settingsApi.restartRuntime();
+      $('runtime').innerHTML = runtimeText(r.runtime);
+    } catch (e) {
+      $('runtime').innerHTML = `<span class="bad">${String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}</span>`;
+    }
+    button.disabled = false;
+  };
   $('save').onclick = () => save($('key').value);
   $('clear').onclick = () => save('');
   $('key').addEventListener('keydown', (e) => { if (e.key === 'Enter') save($('key').value); });
