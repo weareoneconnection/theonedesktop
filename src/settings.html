@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>TheOne 设置</title>
+<style>
+  :root { --bg: #fbfbfc; --surface: #fff; --text: #18181b; --muted: #52525b; --faint: #8e8e98; --border: rgba(15,23,42,.1); --accent: #0d9488; --danger: #dc2626; --ok: #16a34a; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0a0b0e; --surface: #121419; --text: #ededf0; --muted: #a1a1aa; --faint: #6b6b76; --border: rgba(255,255,255,.1); --accent: #5eead4; --danger: #f87171; --ok: #4ade80; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+  header { height: 44px; -webkit-app-region: drag; }
+  main { padding: 4px 28px 28px; }
+  h1 { font-size: 18px; margin: 0 0 18px; letter-spacing: -.01em; }
+  section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  h2 { font-size: 13px; margin: 0 0 4px; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  .row { display: flex; gap: 8px; }
+  input { flex: 1; font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+  button { font: inherit; font-weight: 550; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--text); color: var(--bg); cursor: pointer; }
+  button.ghost { background: transparent; color: var(--muted); }
+  .status { font-size: 12px; margin-top: 10px; color: var(--faint); }
+  .ok { color: var(--ok); } .bad { color: var(--danger); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  li:first-child { border-top: 0; }
+  li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  footer { color: var(--faint); font-size: 11px; }
+</style>
+</head>
+<body>
+<header></header>
+<main>
+  <h1>设置</h1>
+  <section>
+    <h2>Anthropic API 密钥</h2>
+    <p>本机运行编码任务需要。密钥用 macOS 钥匙串加密后保存在这台电脑上，不会上传。</p>
+    <div class="row">
+      <input id="key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+      <button id="save">保存</button>
+      <button id="clear" class="ghost">清除</button>
+    </div>
+    <div class="status" id="keyStatus"></div>
+  </section>
+  <section>
+    <h2>本机运行时</h2>
+    <p>在这台 Mac 上执行任务的 Agent 引擎，只接受本机连接。</p>
+    <div class="status" id="runtime"></div>
+  </section>
+  <section>
+    <h2>已打开的文件夹</h2>
+    <p>Agent 只能在这里列出的文件夹中接任务。在 TheOne 里用“打开文件夹…”（⌘O）添加。</p>
+    <ul id="folders"></ul>
+  </section>
+  <footer id="version"></footer>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const runtimeText = (r) => r.status === 'ready' ? '<span class="ok">● 运行中</span>' : r.status === 'error' ? `<span class="bad">● 出错：${r.error}</span>` : `● ${r.status}`;
+  async function render() {
+    const s = await window.settingsApi.get();
+    $('keyStatus').innerHTML = s.hasApiKey ? '<span class="ok">已保存密钥</span>' : '还没有密钥';
+    $('runtime').innerHTML = runtimeText(s.runtime);
+    $('version').textContent = `TheOne ${s.version}`;
+    const list = $('folders');
+    list.textContent = '';
+    if (!s.workspaces.length) { const li = document.createElement('li'); li.textContent = '还没有打开文件夹'; list.appendChild(li); }
+    for (const folder of s.workspaces) {
+      const li = document.createElement('li');
+      const span = document.createElement('span'); span.textContent = folder; span.title = folder;
+      const btn = document.createElement('button'); btn.className = 'ghost'; btn.textContent = '移除';
+      btn.onclick = async () => { await window.settingsApi.forgetWorkspace(folder); render(); };
+      li.append(span, btn); list.appendChild(li);
+    }
+  }
+  async function save(value) {
+    $('keyStatus').textContent = '正在保存并重启运行时…';
+    try {
+      const r = await window.settingsApi.setApiKey(value);
+      $('key').value = '';
+      $('keyStatus').innerHTML = r.hasApiKey ? '<span class="ok">已保存密钥</span>' : '已清除';
+      $('runtime').innerHTML = runtimeText(r.runtime);
+    } catch (e) {
+      $('keyStatus').innerHTML = `<span class="bad">${String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}</span>`;
+    }
+  }
+  $('save').onclick = () => save($('key').value);
+  $('clear').onclick = () => save('');
+  $('key').addEventListener('keydown', (e) => { if (e.key === 'Enter') save($('key').value); });
+  render();
+  setInterval(render, 3000);
+</script>
+</body>
+</html>

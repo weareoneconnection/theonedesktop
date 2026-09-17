@@ -1,0 +1,35 @@
+'use strict';
+
+const { contextBridge, ipcRenderer } = require('electron');
+
+/**
+ * window.theoneDesktop — present only when TheOne runs inside the desktop app.
+ * The main process re-checks the origin on every call; this is the first gate.
+ */
+// The origin the app was started for arrives as an argument: a sandboxed
+// preload does not see the main process's environment.
+const originArg = (process.argv || []).find((arg) => arg.startsWith('--theone-origin='));
+const allowed = ['https://theone-eta.vercel.app', originArg ? originArg.slice('--theone-origin='.length) : ''].filter(Boolean);
+
+if (allowed.includes(window.location.origin)) {
+  contextBridge.exposeInMainWorld('theoneDesktop', {
+    isDesktop: true,
+    info: () => ipcRenderer.invoke('desktop:info'),
+    pickWorkspace: () => ipcRenderer.invoke('desktop:pickWorkspace'),
+    forgetWorkspace: (folder) => ipcRenderer.invoke('desktop:forgetWorkspace', folder),
+    openSettings: () => ipcRenderer.invoke('desktop:openSettings'),
+    createTask: (input) => ipcRenderer.invoke('desktop:createTask', input),
+    getTask: (taskId) => ipcRenderer.invoke('desktop:getTask', taskId),
+    pendingTasks: () => ipcRenderer.invoke('desktop:pendingTasks'),
+    taskAction: (taskId, action) => ipcRenderer.invoke('desktop:taskAction', taskId, action),
+    reveal: (folder) => ipcRenderer.invoke('desktop:reveal', folder),
+    notify: (title, body) => ipcRenderer.invoke('desktop:notify', title, body),
+    setBadge: (count) => ipcRenderer.invoke('desktop:setBadge', count),
+    /** Menu commands and runtime changes pushed from the app. Returns an unsubscribe. */
+    onEvent: (listener) => {
+      const wrapped = (_event, payload) => listener(payload);
+      ipcRenderer.on('desktop:event', wrapped);
+      return () => ipcRenderer.removeListener('desktop:event', wrapped);
+    },
+  });
+}

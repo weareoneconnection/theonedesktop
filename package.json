@@ -1,0 +1,62 @@
+{
+  "name": "theone-desktop",
+  "productName": "TheOne",
+  "version": "0.1.0",
+  "description": "TheOne for macOS: the OS surface plus a local agent runtime that works on folders on this Mac.",
+  "private": true,
+  "main": "src/main.js",
+  "author": "WAOC",
+  "scripts": {
+    "start": "electron .",
+    "dev": "THEONE_DESKTOP_URL=http://localhost:3017 electron .",
+    "bundle:runtime": "node scripts/bundle-runtime.mjs",
+    "test": "node --test test/*.test.js",
+    "e2e": "node test-e2e/run.mjs",
+    "dist:mac": "npm run bundle:runtime && electron-builder --mac --arm64"
+  },
+  "build": {
+    "appId": "org.weareoneconnection.theone",
+    "productName": "TheOne",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/oneclaw",
+        "to": "oneclaw"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "protocols": [
+      {
+        "name": "TheOne",
+        "schemes": [
+          "theone"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "afterPack": "scripts/after-pack.cjs"
+  },
+  "devDependencies": {
+    "electron": "^44.4.1",
+    "electron-builder": "^26.15.3"
+  }
+}
