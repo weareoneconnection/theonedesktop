@@ -12,7 +12,7 @@
 const { app, BrowserWindow, Menu, safeStorage, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const { deepLinkPath, isAllowedOrigin, startUrl } = require('./policy');
+const { deepLinkPath, isAllowedOrigin, isSignInNavigation, startUrl } = require('./policy');
 const { LocalRuntime } = require('./runtime');
 const { Settings } = require('./settings');
 const { registerBridge } = require('./bridge');
@@ -204,7 +204,7 @@ function createWindow() {
   // Only TheOne loads in this window. Everything else is the browser's job,
   // and never receives the desktop bridge.
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (isAllowedOrigin(url) || url.startsWith('data:')) return;
+    if (isAllowedOrigin(url) || isSignInNavigation(url) || url.startsWith('data:')) return;
     event.preventDefault();
     if (/^https?:/.test(url)) shell.openExternal(url);
   });

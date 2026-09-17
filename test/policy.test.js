@@ -50,3 +50,15 @@ test('API key shape', () => {
   assert.equal(policy.looksLikeAnthropicKey('sk-ant-api03-abcdefghijklmnopqrstuvwxyz'), true);
   assert.equal(policy.looksLikeAnthropicKey('hello'), false);
 });
+
+test('keeps only GitHub sign-in pages in the window', () => {
+  const { isSignInNavigation } = require('../src/policy');
+  assert.equal(isSignInNavigation('https://github.com/login/oauth/authorize?client_id=x'), true);
+  assert.equal(isSignInNavigation('https://github.com/login'), true);
+  assert.equal(isSignInNavigation('https://github.com/sessions/two-factor/app'), true);
+  assert.equal(isSignInNavigation('https://github.com/session'), true);
+  assert.equal(isSignInNavigation('https://github.com/loginevil'), false);
+  assert.equal(isSignInNavigation('https://github.com/settings/tokens'), false);
+  assert.equal(isSignInNavigation('http://github.com/login'), false);
+  assert.equal(isSignInNavigation('https://github.com.evil.io/login'), false);
+});

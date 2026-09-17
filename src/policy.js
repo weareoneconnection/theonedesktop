@@ -36,6 +36,21 @@ function isAllowedOrigin(url, env = process.env) {
   }
 }
 
+/**
+ * GitHub sign-in pages the window may show in place.
+ *
+ * TheOne's session cookie has to land in this window's cookie jar, so the
+ * OAuth round trip (and GitHub's own login and two-factor pages on the way)
+ * stays in the window. These pages never get the bridge: the preload and the
+ * IPC handlers both answer TheOne's origin only.
+ */
+function isSignInNavigation(url) {
+  let parsed;
+  try { parsed = new URL(url); } catch { return false; }
+  if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com') return false;
+  return /^\/(login(\/|$)|session(s)?(\/|$))/.test(parsed.pathname);
+}
+
 /** The TheOne path for a theone:// link: theone://task/<id>, theone://code/new, theone://os. */
 function deepLinkPath(link) {
   let url;
@@ -173,6 +188,7 @@ module.exports = {
   startUrl,
   allowedOrigins,
   isAllowedOrigin,
+  isSignInNavigation,
   deepLinkPath,
   toLocalId,
   fromLocalId,
