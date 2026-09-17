@@ -8,7 +8,7 @@
  */
 
 const { dialog, ipcMain, Notification, shell, app } = require('electron');
-const { buildLocalTaskInput, compactTask, fromLocalId, isAllowedOrigin, looksLikeAnthropicKey, toLocalId } = require('./policy');
+const { buildLocalTaskInput, compactTask, fromLocalId, isAllowedOrigin, looksLikeAnthropicKey, steeringMessage, toLocalId } = require('./policy');
 
 function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
   const guard = (handler) => async (event, ...args) => {
@@ -99,6 +99,14 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
       return { ok: true };
     }
     throw new Error('unsupported action');
+  });
+
+  // A note for a task that is still working: the agent reads it before its
+  // next step (OneClaw's /agent/steer).
+  handle('desktop:steerTask', async (taskId, message) => {
+    const id = fromLocalId(taskId);
+    await runtime.request('POST', `/v1/tasks/${encodeURIComponent(id)}/agent/steer`, { message: steeringMessage(message) });
+    return { ok: true };
   });
 
   handle('desktop:reveal', async (folder) => {

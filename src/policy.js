@@ -119,6 +119,11 @@ function buildLocalTaskInput(body, pickedWorkspaces) {
   if (!picked) throw new Error('That folder was not opened in TheOne. Use "Open folder…" first.');
 
   const input = { objective, workspacePath };
+  // An analysis reads and reports; the runtime runs it once, in a copy.
+  if (value.analyze === true) {
+    input.analyze = true;
+    return input;
+  }
   if (value.isolate === true) input.isolate = true;
   const attempts = value.attempts === undefined ? 1 : Number(value.attempts);
   if (!Number.isInteger(attempts) || attempts < 1 || attempts > 3) throw new Error('Attempts must be 1, 2 or 3.');
@@ -150,7 +155,9 @@ function compactTask(raw) {
         status: String(output.status || ''),
         verified: output.verified === true,
         verifyPassed: typeof output.verifyPassed === 'boolean' ? output.verifyPassed : null,
-        summary: String(output.summary || '').slice(0, 8000),
+        // An analysis task's summary is its report.
+        summary: String(output.summary || '').slice(0, 30000),
+        mode: String(output.mode || ''),
         diff: String(output.diff || '').slice(0, 200000),
         diffStat: String(output.diffStat || '').slice(0, 4000),
         rollbackToken: String(output.rollbackToken || ''),
@@ -220,6 +227,14 @@ function looksLikeAnthropicKey(value) {
   return /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(String(value || '').trim());
 }
 
+/** A note for a running task: plain text, not empty, not a novel. */
+function steeringMessage(value) {
+  const text = String(value || '').trim();
+  if (!text) throw new Error('Write what the agent should take into account.');
+  if (text.length > 2000) throw new Error('The note is too long (2,000 characters maximum).');
+  return text;
+}
+
 module.exports = {
   PRODUCTION_URL,
   FALLBACK_PATH,
@@ -234,6 +249,7 @@ module.exports = {
   fromLocalId,
   isInside,
   buildLocalTaskInput,
+  steeringMessage,
   compactTask,
   mergePath,
   looksLikeAnthropicKey,

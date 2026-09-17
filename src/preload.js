@@ -22,6 +22,7 @@ if (allowed.includes(window.location.origin)) {
     getTask: (taskId) => ipcRenderer.invoke('desktop:getTask', taskId),
     pendingTasks: () => ipcRenderer.invoke('desktop:pendingTasks'),
     taskAction: (taskId, action) => ipcRenderer.invoke('desktop:taskAction', taskId, action),
+    steerTask: (taskId, message) => ipcRenderer.invoke('desktop:steerTask', taskId, message),
     reveal: (folder) => ipcRenderer.invoke('desktop:reveal', folder),
     notify: (title, body) => ipcRenderer.invoke('desktop:notify', title, body),
     setBadge: (count) => ipcRenderer.invoke('desktop:setBadge', count),

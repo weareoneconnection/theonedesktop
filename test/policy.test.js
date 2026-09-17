@@ -94,3 +94,21 @@ test('the update menu item follows the updater', () => {
   assert.equal(updateMenuItem({ status: 'error' }).action, 'check');
   assert.equal(updateMenuItem({ status: 'disabled' }).enabled, false);
 });
+
+test('an analysis task asks the runtime for a report, not a change', () => {
+  const { buildLocalTaskInput } = require('../src/policy');
+  const picked = ['/Users/me/app'];
+  assert.deepEqual(
+    buildLocalTaskInput({ objective: '分析如何升级此代码', workspacePath: '/Users/me/app', analyze: true, attempts: 3, isolate: true, verify: 'npm test' }, picked),
+    { objective: '分析如何升级此代码', workspacePath: '/Users/me/app', analyze: true },
+  );
+  // A folder the person never opened is still refused.
+  assert.throws(() => buildLocalTaskInput({ objective: '分析这个目录的结构', workspacePath: '/etc', analyze: true }, picked));
+});
+
+test('checks a note sent to a running task', () => {
+  const { steeringMessage } = require('../src/policy');
+  assert.equal(steeringMessage('  别装依赖了  '), '别装依赖了');
+  assert.throws(() => steeringMessage('   '));
+  assert.throws(() => steeringMessage('x'.repeat(2001)));
+});
