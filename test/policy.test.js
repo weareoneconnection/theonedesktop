@@ -1,6 +1,9 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const policy = require('../src/policy');
 
 test('only TheOne origins get the bridge', () => {
@@ -111,4 +114,87 @@ test('checks a note sent to a running task', () => {
   assert.equal(steeringMessage('  别装依赖了  '), '别装依赖了');
   assert.throws(() => steeringMessage('   '));
   assert.throws(() => steeringMessage('x'.repeat(2001)));
+});
+
+test('an engine choice reaches the runtime, and the default does not', () => {
+  const picked = policy.buildLocalTaskInput({ objective: '修复分页测试的边界问题', workspacePath: '/tmp/repo', engine: 'codex' }, ['/tmp/repo']);
+  assert.equal(picked.engine, 'codex');
+  const builtIn = policy.buildLocalTaskInput({ objective: '修复分页测试的边界问题', workspacePath: '/tmp/repo', engine: 'theone' }, ['/tmp/repo']);
+  assert.ok(!('engine' in builtIn));
+  // An analysis task keeps its engine too.
+  const analysis = policy.buildLocalTaskInput({ objective: '分析构建流程', workspacePath: '/tmp/repo', analyze: true, engine: 'claude' }, ['/tmp/repo']);
+  assert.deepEqual(analysis, { objective: '分析构建流程', workspacePath: '/tmp/repo', engine: 'claude', analyze: true });
+});
+
+test('a short Chinese objective is a whole instruction', () => {
+  // Eight characters is two English words; "修复分页测试" is already clear.
+  assert.equal(policy.objectiveTooShort('修复分页测试'), false);
+  assert.equal(policy.objectiveTooShort('fix it'), true);
+  assert.equal(policy.objectiveTooShort('   '), true);
+  assert.doesNotThrow(() => policy.buildLocalTaskInput({ objective: '修复分页测试', workspacePath: '/tmp/repo' }, ['/tmp/repo']));
+});
+
+test('an engine that is not ready gets the one action that would fix it', () => {
+  assert.deepEqual(policy.engineAction({ engine: 'codex', ready: true }), { engine: 'codex', action: 'none' });
+  assert.deepEqual(
+    policy.engineAction({ engine: 'codex', ready: false, detail: '已安装，但还没登录：在终端运行 codex login' }),
+    { engine: 'codex', action: 'login' },
+  );
+  assert.deepEqual(
+    policy.engineAction({ engine: 'codex', ready: false, detail: '未找到 Codex CLI（安装 ChatGPT 桌面版或 npm i -g @openai/codex）' }),
+    { engine: 'codex', action: 'install' },
+  );
+  assert.deepEqual(
+    policy.engineAction({ engine: 'claude', ready: false, detail: '已安装，但需要你的 Anthropic API 密钥' }),
+    { engine: 'claude', action: 'key' },
+  );
+});
+
+test('codex login runs the binary this Mac actually has, in a file you can read first', () => {
+  const engines = require('../src/engines');
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theone-engines-'));
+  const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theone-bin-'));
+  const binary = path.join(binDir, 'codex');
+  fs.writeFileSync(binary, '#!/bin/sh\n', { mode: 0o755 });
+
+  const calls = [];
+  const spawnFn = (command, args) => { calls.push([command, args]); return { unref() {} }; };
+  const result = engines.startCodexLogin({ dataDir, env: { PATH: binDir }, spawnFn });
+
+  assert.equal(result.binary, binary);
+  assert.equal(calls[0][0], '/usr/bin/open');
+  assert.deepEqual(calls[0][1], ['-a', 'Terminal', result.script]);
+  const script = fs.readFileSync(result.script, 'utf8');
+  assert.ok(script.includes(`"${binary}" login`));
+  // Nothing is typed on the person's behalf; the script only runs the login.
+  assert.ok(!script.includes('--with-api-key'));
+
+  // An explicit override wins over both the PATH and the known locations.
+  const override = path.join(binDir, 'codex-beta');
+  fs.writeFileSync(override, '#!/bin/sh\n', { mode: 0o755 });
+  assert.equal(engines.findCodexBinary({ ONECLAW_CODEX_BIN: override, PATH: binDir }), override);
+  // On a Mac that has Codex only inside ChatGPT.app, that copy is found.
+  assert.equal(engines.findCodexBinary({ PATH: '/nonexistent' }, [binary]), binary);
+
+  assert.throws(
+    () => engines.startCodexLogin({ dataDir, env: { PATH: '/nonexistent' }, spawnFn, candidates: [] }),
+    /没找到 Codex CLI/,
+  );
+});
+
+test('the engines this Mac has are reported by the runtime that would run them', async () => {
+  const engines = require('../src/engines');
+  const stopped = await engines.listEngines({ state: { status: 'stopped' } });
+  assert.deepEqual(stopped.map((item) => item.ready), [false, false, false]);
+  assert.ok(stopped[0].detail.includes('运行时'));
+
+  const ready = await engines.listEngines({
+    state: { status: 'ready' },
+    request: async (method, path) => {
+      assert.equal(method, 'GET');
+      assert.equal(path, '/v1/code/engines');
+      return { engines: [{ engine: 'codex', ready: true, detail: '已就绪' }] };
+    },
+  });
+  assert.deepEqual(ready, [{ engine: 'codex', ready: true, detail: '已就绪' }]);
 });

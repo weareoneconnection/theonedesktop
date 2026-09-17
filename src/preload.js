@@ -19,6 +19,10 @@ if (allowed.includes(window.location.origin)) {
     forgetWorkspace: (folder) => ipcRenderer.invoke('desktop:forgetWorkspace', folder),
     openSettings: () => ipcRenderer.invoke('desktop:openSettings'),
     createTask: (input) => ipcRenderer.invoke('desktop:createTask', input),
+    /** Which coding engines this Mac can run right now. */
+    engines: () => ipcRenderer.invoke('desktop:engines'),
+    /** Sign in to, or install, an engine that is not ready yet. */
+    engineSetup: (engine) => ipcRenderer.invoke('desktop:engineSetup', engine),
     getTask: (taskId) => ipcRenderer.invoke('desktop:getTask', taskId),
     pendingTasks: () => ipcRenderer.invoke('desktop:pendingTasks'),
     taskAction: (taskId, action) => ipcRenderer.invoke('desktop:taskAction', taskId, action),

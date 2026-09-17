@@ -8,7 +8,8 @@
  */
 
 const { dialog, ipcMain, Notification, shell, app } = require('electron');
-const { buildLocalTaskInput, compactTask, fromLocalId, isAllowedOrigin, looksLikeAnthropicKey, steeringMessage, toLocalId } = require('./policy');
+const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, looksLikeAnthropicKey, steeringMessage, toLocalId } = require('./policy');
+const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
 
 function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
   const guard = (handler) => async (event, ...args) => {
@@ -48,8 +49,26 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
 
   handle('desktop:openSettings', async () => { openSettings(); return true; });
 
+  // Which engines this Mac can run, straight from the runtime that would run
+  // them, so the page offers only choices that will work.
+  handle('desktop:engines', async () => listEngines(runtime));
+
+  // Fix an engine that is not ready: Codex signs in with its own login in
+  // Terminal, the rest is a key in Settings or an install page.
+  handle('desktop:engineSetup', async (engine) => {
+    const name = engineName(engine);
+    if (name === 'codex') return startCodexLogin({ dataDir: app.getPath('userData') });
+    if (name === 'claude' && !settings.hasApiKey) { openSettings(); return { ok: true, opened: 'settings' }; }
+    await shell.openExternal(engineDocsUrl(name));
+    return { ok: true, opened: 'docs' };
+  });
+
   handle('desktop:createTask', async (body) => {
-    if (!settings.hasApiKey) throw new Error('Add your Anthropic API key in TheOne → Settings (⌘,) to run tasks on this Mac.');
+    // Codex brings its own account; only the engines that call Anthropic need
+    // the person's Anthropic key.
+    if (!settings.hasApiKey && engineName(body && body.engine) !== 'codex') {
+      throw new Error('Add your Anthropic API key in TheOne → Settings (⌘,) to run tasks on this Mac.');
+    }
     const input = buildLocalTaskInput(body, settings.workspaces);
     const created = await runtime.request('POST', '/v1/actions/execute', {
       action: 'code.patch.apply',
@@ -145,6 +164,17 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     const window = getWindow();
     if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
     return { hasApiKey: settings.hasApiKey, runtime: state };
+  });
+  ipcMain.handle('settings:engines', async (event) => {
+    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
+    return listEngines(runtime);
+  });
+  ipcMain.handle('settings:engineSetup', async (event, engine) => {
+    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
+    const name = engineName(engine);
+    if (name === 'codex') return startCodexLogin({ dataDir: app.getPath('userData') });
+    await shell.openExternal(engineDocsUrl(name));
+    return { ok: true, opened: 'docs' };
   });
   ipcMain.handle('settings:forgetWorkspace', async (event, folder) => {
     if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');

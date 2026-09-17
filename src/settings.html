@@ -49,6 +49,11 @@
     <div class="status" id="runtime"></div>
   </section>
   <section>
+    <h2>执行引擎</h2>
+    <p>任务可以由 TheOne 自己的引擎执行，也可以交给这台 Mac 上的 Claude CLI 或 Codex CLI —— 无论用哪个，工作区快照、改动对比、验证门和审批都还是 TheOne 的。</p>
+    <ul id="engines"></ul>
+  </section>
+  <section>
     <h2>已打开的文件夹</h2>
     <p>Agent 只能在这里列出的文件夹中接任务。在 TheOne 里用“打开文件夹…”（⌘O）添加。</p>
     <ul id="folders"></ul>
@@ -63,6 +68,7 @@
     $('keyStatus').innerHTML = s.hasApiKey ? '<span class="ok">已保存密钥</span>' : '还没有密钥';
     $('runtime').innerHTML = runtimeText(s.runtime);
     $('version').textContent = `TheOne ${s.version}`;
+    await renderEngines();
     const list = $('folders');
     list.textContent = '';
     if (!s.workspaces.length) { const li = document.createElement('li'); li.textContent = '还没有打开文件夹'; list.appendChild(li); }
@@ -74,6 +80,41 @@
       li.append(span, btn); list.appendChild(li);
     }
   }
+  // The runtime answers what it can run; the app offers the one thing that
+  // would fix an engine that is not ready.
+  const SETUP_LABEL = { codex: '登录 Codex…', claude: '安装说明', theone: '' };
+  async function renderEngines() {
+    const list = $('engines');
+    const engines = await window.settingsApi.engines().catch(() => []);
+    list.textContent = '';
+    if (!engines.length) { const li = document.createElement('li'); li.textContent = '暂时读不到引擎状态'; list.appendChild(li); return; }
+    for (const engine of engines) {
+      const li = document.createElement('li');
+      const mark = document.createElement('span');
+      mark.className = engine.ready ? 'ok' : 'bad';
+      mark.style.flex = '0 0 auto';
+      mark.textContent = engine.ready ? '●' : '○';
+      const text = document.createElement('span');
+      text.textContent = `${engine.label || engine.engine} — ${engine.detail || ''}`;
+      text.title = text.textContent;
+      li.append(mark, text);
+      if (!engine.ready && SETUP_LABEL[engine.engine]) {
+        const button = document.createElement('button');
+        button.className = 'ghost';
+        button.textContent = SETUP_LABEL[engine.engine];
+        button.onclick = async () => {
+          button.disabled = true;
+          try { await window.settingsApi.engineSetup(engine.engine); } catch (error) {
+            text.innerHTML = `<span class="bad">${String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}</span>`;
+          }
+          button.disabled = false;
+        };
+        li.appendChild(button);
+      }
+      list.appendChild(li);
+    }
+  }
+
   async function save(value) {
     $('keyStatus').textContent = '正在保存并重启运行时…';
     try {

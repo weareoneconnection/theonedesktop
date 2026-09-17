@@ -102,6 +102,41 @@ function isInside(root, target) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
+const ENGINES = ['theone', 'claude', 'codex'];
+
+/** The three engines, by the names the product and the runtime both use. */
+function engineName(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (text === 'claude' || text === 'claude-agent') return 'claude';
+  if (text === 'codex') return 'codex';
+  return 'theone';
+}
+
+/**
+ * Whether an objective is too short to act on. Chinese says in four characters
+ * what English needs a sentence for, so "修复分页测试" is a whole instruction.
+ */
+function objectiveTooShort(text) {
+  const value = String(text || '').trim();
+  const cjk = (value.match(/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/g) || []).length;
+  return cjk >= 4 ? false : value.length < 8;
+}
+
+/**
+ * What to tell someone about an engine that cannot run yet, and the one thing
+ * that would fix it. The runtime reports availability; this turns "not signed
+ * in" into a button the app can actually offer.
+ */
+function engineAction(availability) {
+  const engine = engineName(availability && availability.engine);
+  const ready = Boolean(availability && availability.ready);
+  if (ready) return { engine, action: 'none' };
+  const detail = String((availability && availability.detail) || '');
+  if (engine === 'codex') return { engine, action: detail.includes('未找到') ? 'install' : 'login' };
+  if (engine === 'claude') return { engine, action: detail.includes('未安装') ? 'install' : 'key' };
+  return { engine, action: 'key' };
+}
+
 /**
  * A local coding task, validated before it reaches the runtime.
  *
@@ -112,13 +147,17 @@ function buildLocalTaskInput(body, pickedWorkspaces) {
   const value = body && typeof body === 'object' ? body : {};
   const objective = String(value.objective || '').trim();
   const workspacePath = String(value.workspacePath || '').trim();
-  if (objective.length < 8) throw new Error('Describe the change in at least a sentence.');
+  if (objectiveTooShort(objective)) throw new Error('Describe the change in at least a sentence.');
   if (objective.length > 8000) throw new Error('The objective is too long (8,000 characters maximum).');
   if (!workspacePath || !path.isAbsolute(workspacePath)) throw new Error('Choose a folder on this Mac.');
   const picked = (pickedWorkspaces || []).some((folder) => isInside(folder, workspacePath));
   if (!picked) throw new Error('That folder was not opened in TheOne. Use "Open folder…" first.');
 
   const input = { objective, workspacePath };
+  // Which agent executes it. The runtime falls back to its own engine when the
+  // chosen one is not installed or not signed in on this Mac.
+  const engine = engineName(value.engine);
+  if (engine !== 'theone') input.engine = engine;
   // An analysis reads and reports; the runtime runs it once, in a copy.
   if (value.analyze === true) {
     input.analyze = true;
@@ -237,6 +276,10 @@ function steeringMessage(value) {
 
 module.exports = {
   PRODUCTION_URL,
+  ENGINES,
+  engineName,
+  engineAction,
+  objectiveTooShort,
   FALLBACK_PATH,
   startUrl,
   allowedOrigins,
