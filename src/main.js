@@ -163,7 +163,16 @@ function offlinePage(error) {
 }
 
 function createWindow() {
-  const bounds = settings.windowBounds || { width: 1440, height: 920 };
+  // First launch: a comfortable window sized to the screen (about three
+  // quarters of it, at most 1280×820), centred. Afterwards the window keeps
+  // whatever size the person gave it.
+  const { screen } = require('electron');
+  const area = screen.getPrimaryDisplay().workAreaSize;
+  const bounds = settings.windowBounds || {
+    width: Math.min(1280, Math.round(area.width * 0.75)),
+    height: Math.min(820, Math.round(area.height * 0.8)),
+    center: true,
+  };
   mainWindow = new BrowserWindow({
     ...bounds,
     minWidth: 860,
