@@ -93,6 +93,11 @@ class LocalRuntime {
       ONECLAW_CODE_WORKSPACE_ALLOWLIST: '/',
       ONECLAW_TASK_WORKSPACE_ROOT: path.join(this.dataDir, 'tasks'),
       ONECLAW_AGENT_STATE_DIR: path.join(this.dataDir, 'agent-sessions'),
+      // Task history survives restarts. A task that was running when the app
+      // quit is marked interrupted on the next start, not resumed: local tasks
+      // may edit the person's own folder, and resuming that unasked is wrong.
+      ONECLAW_TASK_STORE: 'file',
+      ONECLAW_TASK_STORE_FILE: path.join(this.dataDir, 'tasks.json'),
       ONECLAW_RECOVER_ON_BOOT: 'false',
       ONECLAW_AGENT_MAX_CONCURRENCY: '2',
       ...(this.apiKey ? { ANTHROPIC_API_KEY: this.apiKey } : {}),
