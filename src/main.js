@@ -21,18 +21,20 @@ const START_URL = startUrl();
 const START_ORIGIN = new URL(START_URL).origin;
 process.env.THEONE_DESKTOP_ORIGIN = START_ORIGIN;
 
+// Development and tests only (before the single-instance lock, which is keyed
+// on the data folder, so a test instance runs beside an installed app): a separate data folder, and a key from the
+// environment instead of the Keychain (which would prompt). Ignored when packaged.
+if (!app.isPackaged && process.env.THEONE_DESKTOP_DATA_DIR) {
+  app.setPath('userData', process.env.THEONE_DESKTOP_DATA_DIR);
+}
+const devApiKey = !app.isPackaged ? String(process.env.THEONE_DESKTOP_DEV_API_KEY || '') : '';
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
 app.setAsDefaultProtocolClient('theone');
 
-// Development and tests only: a separate data folder, and a key from the
-// environment instead of the Keychain (which would prompt). Ignored when packaged.
-if (!app.isPackaged && process.env.THEONE_DESKTOP_DATA_DIR) {
-  app.setPath('userData', process.env.THEONE_DESKTOP_DATA_DIR);
-}
-const devApiKey = !app.isPackaged ? String(process.env.THEONE_DESKTOP_DEV_API_KEY || '') : '';
 
 let mainWindow = null;
 let settingsWindow = null;

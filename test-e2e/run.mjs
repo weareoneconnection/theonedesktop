@@ -84,12 +84,35 @@ try {
   results.originalUntouched = execFileSync('git', ['status', '--porcelain'], { cwd: repo }).toString().trim() === '';
 
   // The page itself: open the coding task view and capture it.
-  await page.evaluate((id) => { window.location.href = `/os?task=${encodeURIComponent(id)}`; }, taskId);
-  await page.waitForTimeout(6000);
+  await page.setViewportSize({ width: 1500, height: 960 }).catch(() => undefined);
+  await page.evaluate(({ id, objective, folder }) => {
+    // Remember the task the way the form does, so the rail lists it.
+    const key = 'theone.code.recentTasks';
+    const list = JSON.parse(localStorage.getItem(key) || '[]');
+    localStorage.setItem(key, JSON.stringify([{ taskId: id, objective, target: folder, createdAt: new Date().toISOString(), status: 'success' }, ...list]));
+    window.location.href = `/os?task=${encodeURIComponent(id)}`;
+  }, { id: taskId, objective: 'orderTotal 在真实 CSV 输入下结果错误或 NaN，修复并保持测试不变', folder: repo });
+  await page.waitForTimeout(7000);
   await page.screenshot({ path: path.join(scratch, 'task-view.png') });
-  await page.evaluate(() => { window.location.href = '/os?code=new'; });
+  await page.evaluate(() => { localStorage.setItem('theone.shell.theme', 'dark'); });
+  await page.reload();
   await page.waitForTimeout(6000);
-  await page.screenshot({ path: path.join(scratch, 'new-task.png') });
+  await page.evaluate(() => { const el = [...document.querySelectorAll('h2')].find((h) => h.textContent === '执行过程'); el?.scrollIntoView({ block: 'start' }); });
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: path.join(scratch, 'task-steps-dark.png') });
+  const review = page.getByRole('button', { name: '审核' });
+  if (await review.count()) { await review.first().click(); await page.waitForTimeout(1200); }
+  await page.screenshot({ path: path.join(scratch, 'task-review.png') });
+  await page.getByRole('button', { name: /执行过程/ }).count();
+  await page.getByRole('button', { name: '自动化' }).first().click().catch(() => undefined);
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: path.join(scratch, 'automation.png') });
+  await page.getByRole('button', { name: '后台管理' }).first().click().catch(() => undefined);
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: path.join(scratch, 'admin.png') });
+  await page.getByRole('button', { name: '新对话' }).first().click().catch(() => undefined);
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: path.join(scratch, 'home.png') });
   results.screenshots = scratch;
 } catch (error) {
   results.error = String(error && error.stack || error);

@@ -127,7 +127,18 @@ function compactTask(raw) {
       },
     };
   }) : [];
-  return { id: toLocalId(String(task.id || '')), status: String(task.status || ''), taskName: String(task.taskName || ''), logs, steps };
+  const planned = task.metadata && task.metadata.normalizedTask && Array.isArray(task.metadata.normalizedTask.steps) ? task.metadata.normalizedTask.steps : [];
+  const agentInput = (planned.find((step) => step && step.action === 'code.patch.apply') || {}).input || {};
+  return {
+    id: toLocalId(String(task.id || '')),
+    status: String(task.status || ''),
+    taskName: String(task.taskName || ''),
+    objective: String(agentInput.objective || '').slice(0, 2000),
+    target: String(agentInput.workspacePath || agentInput.repo || ''),
+    createdAt: String(task.createdAt || ''),
+    logs,
+    steps,
+  };
 }
 
 /**
