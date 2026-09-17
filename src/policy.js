@@ -112,6 +112,28 @@ function engineName(value) {
   return 'theone';
 }
 
+/** At most six files, 8MB each, 20MB together — the runtime's own limits. */
+function localAttachments(raw) {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) throw new Error('Attachments must be a list.');
+  if (raw.length > 6) throw new Error('一次最多带 6 个附件。');
+  const files = [];
+  let total = 0;
+  for (const item of raw) {
+    const record = item && typeof item === 'object' ? item : {};
+    const name = String(record.name || '').trim();
+    const content = String(record.content || '');
+    if (!name || !content) throw new Error('附件缺少文件名或内容。');
+    const payload = content.startsWith('data:') ? content.slice(content.indexOf(',') + 1) : content;
+    const bytes = Math.floor((payload.length * 3) / 4);
+    if (bytes > 8 * 1024 * 1024) throw new Error(`附件“${name}”太大了（超过 8MB）。`);
+    total += bytes;
+    if (total > 20 * 1024 * 1024) throw new Error('附件加起来太大了（超过 20MB）。');
+    files.push({ name: name.slice(0, 120), content });
+  }
+  return files;
+}
+
 /**
  * Whether an objective is too short to act on. Chinese says in four characters
  * what English needs a sentence for, so "修复分页测试" is a whole instruction.
@@ -154,6 +176,16 @@ function buildLocalTaskInput(body, pickedWorkspaces) {
   if (!picked) throw new Error('That folder was not opened in TheOne. Use "Open folder…" first.');
 
   const input = { objective, workspacePath };
+  // Files handed to the run — a screenshot, a log, a spec. The runtime writes
+  // them into the workspace before the agent starts; the caps match its own.
+  const attachments = localAttachments(value.attachments);
+  if (attachments.length) input.attachments = attachments;
+  // A big task does not fit in the runtime's default turn limit.
+  if (value.maxTurns !== undefined && value.maxTurns !== '') {
+    const turns = Number(value.maxTurns);
+    if (!Number.isInteger(turns) || turns < 10 || turns > 200) throw new Error('Turn limit must be a whole number between 10 and 200.');
+    input.maxTurns = turns;
+  }
   // Which agent executes it. The runtime falls back to its own engine when the
   // chosen one is not installed or not signed in on this Mac.
   const engine = engineName(value.engine);
@@ -279,6 +311,7 @@ module.exports = {
   ENGINES,
   engineName,
   engineAction,
+  localAttachments,
   objectiveTooShort,
   FALLBACK_PATH,
   startUrl,

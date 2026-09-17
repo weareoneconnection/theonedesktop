@@ -198,3 +198,28 @@ test('the engines this Mac has are reported by the runtime that would run them',
   });
   assert.deepEqual(ready, [{ engine: 'codex', ready: true, detail: '已就绪' }]);
 });
+
+test('files handed to a local run travel with it, within the runtime limits', () => {
+  const png = Buffer.from('89504e470d0a1a0a', 'hex').toString('base64');
+  const input = policy.buildLocalTaskInput({
+    objective: '按这张截图修一下按钮位置',
+    workspacePath: '/tmp/repo',
+    attachments: [{ name: '错误截图.png', content: `data:image/png;base64,${png}` }],
+  }, ['/tmp/repo']);
+  assert.equal(input.attachments.length, 1);
+  assert.equal(input.attachments[0].name, '错误截图.png');
+
+  // The caps are the runtime's, so the app refuses the same things it would.
+  assert.throws(() => policy.localAttachments(Array(7).fill({ name: 'a.png', content: png })), /最多带 6 个/);
+  assert.throws(() => policy.localAttachments([{ name: 'a.png' }]), /缺少文件名或内容/);
+  assert.throws(() => policy.localAttachments([{ name: 'big.bin', content: 'A'.repeat(12 * 1024 * 1024) }]), /太大/);
+  assert.deepEqual(policy.localAttachments(undefined), []);
+});
+
+test('a big local task can ask for more turns, within range', () => {
+  const input = policy.buildLocalTaskInput({ objective: '升级全部依赖并修好构建', workspacePath: '/tmp/repo', maxTurns: 120 }, ['/tmp/repo']);
+  assert.equal(input.maxTurns, 120);
+  for (const bad of [5, 500, 1.5]) {
+    assert.throws(() => policy.buildLocalTaskInput({ objective: '升级全部依赖并修好构建', workspacePath: '/tmp/repo', maxTurns: bad }, ['/tmp/repo']), /between 10 and 200/);
+  }
+});
