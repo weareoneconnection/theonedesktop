@@ -1,7 +1,7 @@
 {
   "name": "theone-desktop",
   "productName": "TheOne",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TheOne for macOS: the OS surface plus a local agent runtime that works on folders on this Mac.",
   "private": true,
   "main": "src/main.js",
@@ -12,7 +12,8 @@
     "bundle:runtime": "node scripts/bundle-runtime.mjs",
     "test": "node --test test/*.test.js",
     "e2e": "node test-e2e/run.mjs",
-    "dist:mac": "npm run bundle:runtime && electron-builder --mac --arm64"
+    "dist:mac": "npm run bundle:runtime && electron-builder --mac --arm64 --publish never",
+    "release:mac": "npm run bundle:runtime && electron-builder --mac --arm64 --publish always"
   },
   "build": {
     "appId": "org.weareoneconnection.theone",
@@ -35,12 +36,19 @@
           "arch": [
             "arm64"
           ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
         }
       ],
       "icon": "build/icon.png",
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true
     },
     "protocols": [
       {
@@ -53,10 +61,21 @@
     "directories": {
       "output": "release"
     },
-    "afterPack": "scripts/after-pack.cjs"
+    "afterPack": "scripts/after-pack.cjs",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "weareoneconnection",
+        "repo": "theone-releases",
+        "releaseType": "release"
+      }
+    ]
   },
   "devDependencies": {
     "electron": "^44.4.1",
     "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

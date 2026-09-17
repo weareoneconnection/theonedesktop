@@ -178,6 +178,23 @@ function mergePath(...sources) {
 
 const FALLBACK_PATH = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
 
+/** Updates run in the packaged app only, unless THEONE_DESKTOP_DISABLE_UPDATES=1. */
+function updatesEnabled({ isPackaged, env = process.env }) {
+  if (!isPackaged) return false;
+  return !['1', 'true', 'yes'].includes(String(env.THEONE_DESKTOP_DISABLE_UPDATES || '').trim().toLowerCase());
+}
+
+/** The menu item for the updater's state. */
+function updateMenuItem(state) {
+  switch (state && state.status) {
+    case 'ready': return { label: `重启以更新到 ${state.version}`, action: 'install', enabled: true };
+    case 'checking': return { label: '正在检查更新…', action: 'none', enabled: false };
+    case 'downloading': return { label: `正在下载 ${state.version}（${state.progress || 0}%）`, action: 'none', enabled: false };
+    case 'disabled': return { label: '检查更新…', action: 'none', enabled: false };
+    default: return { label: '检查更新…', action: 'check', enabled: true };
+  }
+}
+
 function looksLikeAnthropicKey(value) {
   return /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(String(value || '').trim());
 }
@@ -197,4 +214,6 @@ module.exports = {
   compactTask,
   mergePath,
   looksLikeAnthropicKey,
+  updatesEnabled,
+  updateMenuItem,
 };

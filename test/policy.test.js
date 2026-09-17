@@ -62,3 +62,19 @@ test('keeps only GitHub sign-in pages in the window', () => {
   assert.equal(isSignInNavigation('http://github.com/login'), false);
   assert.equal(isSignInNavigation('https://github.com.evil.io/login'), false);
 });
+
+test('updates run only in the packaged app and can be switched off', () => {
+  const { updatesEnabled } = require('../src/policy');
+  assert.equal(updatesEnabled({ isPackaged: false, env: {} }), false);
+  assert.equal(updatesEnabled({ isPackaged: true, env: {} }), true);
+  assert.equal(updatesEnabled({ isPackaged: true, env: { THEONE_DESKTOP_DISABLE_UPDATES: '1' } }), false);
+});
+
+test('the update menu item follows the updater', () => {
+  const { updateMenuItem } = require('../src/policy');
+  assert.deepEqual(updateMenuItem({ status: 'ready', version: '0.3.0' }), { label: '重启以更新到 0.3.0', action: 'install', enabled: true });
+  assert.equal(updateMenuItem({ status: 'downloading', version: '0.3.0', progress: 42 }).label, '正在下载 0.3.0（42%）');
+  assert.equal(updateMenuItem({ status: 'idle' }).action, 'check');
+  assert.equal(updateMenuItem({ status: 'error' }).action, 'check');
+  assert.equal(updateMenuItem({ status: 'disabled' }).enabled, false);
+});

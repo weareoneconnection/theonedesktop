@@ -9,10 +9,11 @@
  * for what the page is allowed to ask for.
  */
 
-const { app, BrowserWindow, Menu, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, safeStorage, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const { deepLinkPath, isAllowedOrigin, isSignInNavigation, startUrl } = require('./policy');
+const { deepLinkPath, isAllowedOrigin, isSignInNavigation, startUrl, updateMenuItem } = require('./policy');
+const { createUpdater } = require('./updater');
 const { LocalRuntime } = require('./runtime');
 const { Settings } = require('./settings');
 const { registerBridge } = require('./bridge');
@@ -54,6 +55,8 @@ function runtimeEntry() {
 
 let settings;
 let runtime;
+let updater;
+let quitting = false;
 
 function send(event) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('desktop:event', event);
@@ -96,12 +99,36 @@ async function pickFolderAndOpen() {
   send({ type: 'command', command: 'new-code-task', workspacePath: result.filePaths[0] });
 }
 
+function updateItem() {
+  const item = updateMenuItem(updater ? updater.state() : { status: 'disabled' });
+  return {
+    label: item.label,
+    enabled: item.enabled,
+    click: () => {
+      if (item.action === 'install') void installUpdate();
+      else if (item.action === 'check') void updater.check({ userInitiated: true });
+    },
+  };
+}
+
+function notify(title, body) {
+  if (Notification.isSupported()) new Notification({ title, body }).show();
+}
+
+async function installUpdate() {
+  // Stop the runtime first: quitting for an update skips the normal quit path.
+  quitting = true;
+  await runtime?.stop().catch(() => undefined);
+  if (!updater.install()) quitting = false;
+}
+
 function buildMenu() {
   const template = [
     {
       label: 'TheOne',
       submenu: [
         { role: 'about', label: '关于 TheOne' },
+        updateItem(),
         { type: 'separator' },
         { label: '设置…', accelerator: 'CommandOrControl+,', click: openSettings },
         { type: 'separator' },
@@ -243,6 +270,17 @@ app.whenReady().then(async () => {
   runtime = new LocalRuntime({ entry: runtimeEntry(), dataDir, log });
   if (devApiKey) settings.devApiKey = devApiKey;
   registerBridge({ runtime, settings, getWindow: () => mainWindow, openSettings, log });
+  let lastUpdateStatus = '';
+  updater = createUpdater({
+    app,
+    log,
+    notify,
+    // Rebuild the menu when the item's text changes, not on every progress tick.
+    onChange: (state) => {
+      const key = `${state.status}:${state.version}:${Math.floor((state.progress || 0) / 10)}`;
+      if (key !== lastUpdateStatus) { lastUpdateStatus = key; buildMenu(); }
+    },
+  });
   buildMenu();
   createWindow();
 
@@ -257,7 +295,6 @@ app.on('activate', () => {
   if (!mainWindow) createWindow();
 });
 
-let quitting = false;
 app.on('before-quit', async (event) => {
   if (quitting || !runtime) return;
   event.preventDefault();
