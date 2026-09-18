@@ -180,7 +180,7 @@ function buildMenu() {
       label: '文件',
       submenu: [
         { label: '新建会话', accelerator: 'CommandOrControl+N', click: () => send({ type: 'command', command: 'new-session' }) },
-        { label: '新建编码任务', accelerator: 'CommandOrControl+Shift+N', click: () => send({ type: 'command', command: 'new-code-task' }) },
+        { label: '新建编程任务', accelerator: 'CommandOrControl+Shift+N', click: () => send({ type: 'command', command: 'new-code-task' }) },
         { label: '打开文件夹…', accelerator: 'CommandOrControl+O', click: pickFolderAndOpen },
         { type: 'separator' },
         { role: 'close', label: '关闭窗口' },
