@@ -1,7 +1,7 @@
 {
   "name": "theone-desktop",
   "productName": "TheOne",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "TheOne for macOS: the OS surface plus a local agent runtime that works on folders on this Mac.",
   "private": true,
   "main": "src/main.js",

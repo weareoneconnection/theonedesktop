@@ -9,7 +9,12 @@ const { contextBridge, ipcRenderer } = require('electron');
 // The origin the app was started for arrives as an argument: a sandboxed
 // preload does not see the main process's environment.
 const originArg = (process.argv || []).find((arg) => arg.startsWith('--theone-origin='));
-const allowed = ['https://theone-eta.vercel.app', originArg ? originArg.slice('--theone-origin='.length) : ''].filter(Boolean);
+const allowed = [
+  'https://www.the1os.io',
+  // Kept for one migration release; the server permanently redirects it.
+  'https://theone-eta.vercel.app',
+  originArg ? originArg.slice('--theone-origin='.length) : '',
+].filter(Boolean);
 
 if (allowed.includes(window.location.origin)) {
   contextBridge.exposeInMainWorld('theoneDesktop', {

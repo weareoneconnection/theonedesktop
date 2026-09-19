@@ -8,6 +8,7 @@ const policy = require('../src/policy');
 
 test('only TheOne origins get the bridge', () => {
   const env = {};
+  assert.equal(policy.isAllowedOrigin('https://www.the1os.io/os?task=1', env), true);
   assert.equal(policy.isAllowedOrigin('https://theone-eta.vercel.app/os?task=1', env), true);
   assert.equal(policy.isAllowedOrigin('https://evil.example/os', env), false);
   assert.equal(policy.isAllowedOrigin('https://theone-eta.vercel.app.evil.example/', env), false);
@@ -20,7 +21,7 @@ test('deep links map to TheOne views and nothing else', () => {
   assert.equal(policy.deepLinkPath('theone://task/abc_123'), '/os?task=abc_123');
   assert.equal(policy.deepLinkPath('theone://code/new'), '/os?code=new');
   assert.equal(policy.deepLinkPath('theone://task/..%2F..%2Fetc'), '/os');
-  assert.equal(policy.deepLinkPath('https://theone-eta.vercel.app'), null);
+  assert.equal(policy.deepLinkPath('https://www.the1os.io'), null);
 });
 
 test('local task ids round-trip and reject anything else', () => {
@@ -67,10 +68,11 @@ test('API key shape', () => {
 
 test('sends a sign-in start to the browser and keeps where to come back to', () => {
   const env = {};
-  assert.equal(policy.signInStart('https://theone-eta.vercel.app/api/auth/github?returnTo=%2Fos%3Ftask%3Dabc', env), '/os?task=abc');
+  assert.equal(policy.signInStart('https://www.the1os.io/api/auth/github?returnTo=%2Fos%3Ftask%3Dabc', env), '/os?task=abc');
+  assert.equal(policy.signInStart('https://www.the1os.io/api/auth/github', env), '/os');
+  assert.equal(policy.signInStart('https://www.the1os.io/api/auth/github?returnTo=https://evil.example', env), '/os');
+  assert.equal(policy.signInStart('https://www.the1os.io/api/auth/github/callback?code=x', env), null);
   assert.equal(policy.signInStart('https://theone-eta.vercel.app/api/auth/github', env), '/os');
-  assert.equal(policy.signInStart('https://theone-eta.vercel.app/api/auth/github?returnTo=https://evil.example', env), '/os');
-  assert.equal(policy.signInStart('https://theone-eta.vercel.app/api/auth/github/callback?code=x', env), null);
   assert.equal(policy.signInStart('https://evil.example/api/auth/github', env), null);
   assert.equal(policy.signInStart('https://github.com/login', env), null);
 });

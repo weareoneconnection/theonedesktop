@@ -8,7 +8,8 @@
 const crypto = require('node:crypto');
 const path = require('node:path');
 
-const PRODUCTION_URL = 'https://theone-eta.vercel.app/os';
+const PRODUCTION_URL = 'https://www.the1os.io/os';
+const LEGACY_PRODUCTION_ORIGIN = 'https://theone-eta.vercel.app';
 
 /** The page the window loads. THEONE_DESKTOP_URL overrides it for development. */
 function startUrl(env = process.env) {
@@ -24,7 +25,10 @@ function startUrl(env = process.env) {
  * the browser instead, and gets nothing.
  */
 function allowedOrigins(env = process.env) {
-  const origins = new Set([new URL(PRODUCTION_URL).origin]);
+  // Keep the legacy origin trusted for one migration release. It now returns a
+  // permanent redirect, while older saved links and explicit overrides remain
+  // safe during the transition.
+  const origins = new Set([new URL(PRODUCTION_URL).origin, LEGACY_PRODUCTION_ORIGIN]);
   try { origins.add(new URL(startUrl(env)).origin); } catch { /* invalid override: production only */ }
   return origins;
 }
