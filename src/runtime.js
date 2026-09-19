@@ -100,6 +100,10 @@ class LocalRuntime {
       ONECLAW_TASK_STORE_FILE: path.join(this.dataDir, 'tasks.json'),
       ONECLAW_RECOVER_ON_BOOT: 'false',
       ONECLAW_AGENT_MAX_CONCURRENCY: '2',
+      // Same room as the cloud runtime (150 on Railway; the runtime's own
+      // default is 50). A local run that needs to install and verify ran out
+      // of turns at 50 after its code was already right.
+      AGENT_ENGINE_MAX_TURNS: '150',
       ...(this.apiKey ? { ANTHROPIC_API_KEY: this.apiKey } : {}),
     };
 
