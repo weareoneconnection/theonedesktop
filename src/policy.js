@@ -165,6 +165,9 @@ function engineAction(availability) {
  * The workspace must be a folder the person picked in this app — not any path
  * the page names — so a page cannot point the agent at ~/.ssh.
  */
+/** The models the task form offers. Keep in step with MODEL_OPTIONS in theone-complete. */
+const CLAUDE_MODELS = ['claude-sonnet-5', 'claude-opus-5', 'claude-fable-5-1'];
+
 function buildLocalTaskInput(body, pickedWorkspaces) {
   const value = body && typeof body === 'object' ? body : {};
   const objective = String(value.objective || '').trim();
@@ -190,6 +193,14 @@ function buildLocalTaskInput(body, pickedWorkspaces) {
   // chosen one is not installed or not signed in on this Mac.
   const engine = engineName(value.engine);
   if (engine !== 'theone') input.engine = engine;
+  // Which Claude model it runs on. The runtime hands it to the Claude CLI as
+  // --model, so only the models the form offers get through; Codex runs
+  // OpenAI models and never takes one.
+  const model = String(value.model || '').trim();
+  if (model && engine !== 'codex') {
+    if (!CLAUDE_MODELS.includes(model)) throw new Error(`Unknown model: ${model.slice(0, 40)}`);
+    input.model = model;
+  }
   // An analysis reads and reports; the runtime runs it once, in a copy.
   if (value.analyze === true) {
     input.analyze = true;

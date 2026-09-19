@@ -223,3 +223,17 @@ test('a big local task can ask for more turns, within range', () => {
     assert.throws(() => policy.buildLocalTaskInput({ objective: '升级全部依赖并修好构建', workspacePath: '/tmp/repo', maxTurns: bad }, ['/tmp/repo']), /between 10 and 200/);
   }
 });
+
+test('a local task can name the Claude model it runs on', () => {
+  const picked = ['/Users/me/code/app'];
+  const base = { objective: 'fix the failing login test', workspacePath: '/Users/me/code/app' };
+  assert.equal(policy.buildLocalTaskInput({ ...base, model: 'claude-opus-5' }, picked).model, 'claude-opus-5');
+  assert.equal(policy.buildLocalTaskInput({ ...base, engine: 'claude', model: 'claude-fable-5-1' }, picked).model, 'claude-fable-5-1');
+  assert.equal(policy.buildLocalTaskInput({ ...base, analyze: true, model: 'claude-opus-5' }, picked).model, 'claude-opus-5');
+  // Empty means the engine default: nothing is sent.
+  assert.equal('model' in policy.buildLocalTaskInput({ ...base, model: '' }, picked), false);
+  // Codex runs OpenAI models; a Claude model is dropped rather than passed on.
+  assert.equal('model' in policy.buildLocalTaskInput({ ...base, engine: 'codex', model: 'claude-opus-5' }, picked), false);
+  // It becomes a CLI flag, so nothing outside the list gets through.
+  assert.throws(() => policy.buildLocalTaskInput({ ...base, engine: 'claude', model: '--settings /tmp/x' }, picked), /Unknown model/);
+});
