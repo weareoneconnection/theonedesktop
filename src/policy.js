@@ -201,6 +201,11 @@ function buildLocalTaskInput(body, pickedWorkspaces) {
     if (!CLAUDE_MODELS.includes(model)) throw new Error(`Unknown model: ${model.slice(0, 40)}`);
     input.model = model;
   }
+  // Keep the worktree after the run so a follow-up message in this thread
+  // continues in the same copy instead of a fresh checkout. The app always
+  // asks for this; dropped silently here, every local follow-up looked like
+  // a brand new task with no memory of what the thread had already done.
+  if (value.keepWorkspace === true) input.keepWorkspace = true;
   // An analysis reads and reports; the runtime runs it once, in a copy.
   if (value.analyze === true) {
     input.analyze = true;

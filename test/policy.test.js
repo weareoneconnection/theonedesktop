@@ -37,6 +37,17 @@ test('a local task must target a folder the person opened', () => {
   assert.throws(() => policy.buildLocalTaskInput({ objective: 'two tries in place', workspacePath: '/Users/me/code/app', attempts: 2 }, picked), /copy/);
 });
 
+test('a local task keeps its worktree when the app asks, for a thread to continue in', () => {
+  // The app always sends keepWorkspace: true. Dropped here, every follow-up
+  // in a local thread got a fresh checkout instead of continuing in the same
+  // copy — this input is what carries that intent to the runtime.
+  const picked = ['/Users/me/code/app'];
+  const base = { objective: 'fix the failing login test', workspacePath: '/Users/me/code/app', keepWorkspace: true };
+  assert.equal(policy.buildLocalTaskInput(base, picked).keepWorkspace, true);
+  assert.equal(policy.buildLocalTaskInput({ ...base, analyze: true }, picked).keepWorkspace, true);
+  assert.equal('keepWorkspace' in policy.buildLocalTaskInput({ objective: base.objective, workspacePath: base.workspacePath }, picked), false);
+});
+
 test('compact task keeps what the task view shows and marks the id local', () => {
   const task = policy.compactTask({ id: 'T1abc', status: 'success', logs: ['a'], steps: [{ stepId: 's', action: 'code.patch.apply', status: 'success', output: { verifyPassed: true, keptAttempt: 2, attempts: [{ attempt: 1 }], diff: '+x' } }] });
   assert.equal(task.id, 'local:T1abc');
