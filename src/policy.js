@@ -171,6 +171,12 @@ function engineAction(availability) {
  */
 /** The models the task form offers. Keep in step with MODEL_OPTIONS in theone-complete. */
 const CLAUDE_MODELS = ['claude-sonnet-5', 'claude-opus-5', 'claude-fable-5-1'];
+/** OpenAI models, which only TheOne's own engine runs (the Claude CLI cannot). */
+const OPENAI_MODELS = ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'];
+
+function isOpenAIModel(value) {
+  return OPENAI_MODELS.includes(String(value || '').trim());
+}
 
 /**
  * `taskCopiesRoot` is where the runtime keeps each task's working copy. A
@@ -213,7 +219,8 @@ function buildLocalTaskInput(body, pickedWorkspaces, taskCopiesRoot) {
   // OpenAI models and never takes one.
   const model = String(value.model || '').trim();
   if (model && engine !== 'codex') {
-    if (!CLAUDE_MODELS.includes(model)) throw new Error(`Unknown model: ${model.slice(0, 40)}`);
+    const known = CLAUDE_MODELS.includes(model) || (engine === 'theone' && OPENAI_MODELS.includes(model));
+    if (!known) throw new Error(`Unknown model: ${model.slice(0, 40)}`);
     input.model = model;
   }
   // Keep the worktree after the run so a follow-up message in this thread
@@ -349,6 +356,25 @@ function looksLikeAnthropicKey(value) {
   return /^sk-ant-[A-Za-z0-9_-]{20,}$/.test(String(value || '').trim());
 }
 
+/**
+ * How the runtime's Codex signs in.
+ *
+ * By default, with the person's own `codex login` (their ChatGPT plan) in
+ * ~/.codex, which the runtime never touches. With "Codex 用 API 密钥" on, it
+ * gets a Codex home of its own in the app's data folder and the OpenAI key:
+ * the runtime signs Codex in there with the key, so Codex bills the key and
+ * the ChatGPT login stays as it was — switching back is turning it off.
+ */
+function codexEnv({ openaiKey, codexUsesKey, dataDir }) {
+  if (!codexUsesKey || !openaiKey) return {};
+  return { OPENAI_API_KEY: openaiKey, CODEX_HOME: path.join(dataDir, 'codex-api') };
+}
+
+function looksLikeOpenAIKey(value) {
+  const key = String(value || '').trim();
+  return /^sk-[A-Za-z0-9_-]{20,}$/.test(key) && !key.startsWith('sk-ant-');
+}
+
 /** A note for a running task: plain text, not empty, not a novel. */
 function steeringMessage(value) {
   const text = String(value || '').trim();
@@ -359,6 +385,10 @@ function steeringMessage(value) {
 
 module.exports = {
   PRODUCTION_URL,
+  OPENAI_MODELS,
+  isOpenAIModel,
+  looksLikeOpenAIKey,
+  codexEnv,
   ENGINES,
   engineName,
   engineAction,

@@ -3,7 +3,7 @@
 /**
  * Settings on disk, in the app's data folder.
  *
- * The Anthropic key is encrypted with Electron's safeStorage, which on macOS is
+ * The Anthropic and OpenAI keys are encrypted with Electron's safeStorage, which on macOS is
  * backed by a key in the login Keychain: the file alone does not reveal it.
  */
 
@@ -40,6 +40,48 @@ class Settings {
     this.data.workspaces = (this.data.workspaces || []).filter((item) => item !== folder);
     this.save();
     return this.workspaces;
+  }
+
+  get hasOpenAIKey() {
+    return Boolean(this.data.openaiApiKey);
+  }
+
+  getOpenAIKey() {
+    return this.decrypt(this.data.openaiApiKey);
+  }
+
+  setOpenAIKey(value) {
+    this.data.openaiApiKey = this.encrypt(value);
+    this.save();
+  }
+
+  get codexUsesApiKey() {
+    return Boolean(this.data.codexUsesApiKey);
+  }
+
+  set codexUsesApiKey(value) {
+    this.data.codexUsesApiKey = Boolean(value);
+    this.save();
+  }
+
+  /** What the runtime is started with: the Anthropic key, the OpenAI key, and how Codex signs in. */
+  runtimeArgs() {
+    return [this.devApiKey || this.getApiKey(), this.getOpenAIKey(), this.codexUsesApiKey];
+  }
+
+  decrypt(stored) {
+    if (!stored || !this.safeStorage.isEncryptionAvailable()) return '';
+    try {
+      return this.safeStorage.decryptString(Buffer.from(stored, 'base64'));
+    } catch {
+      return '';
+    }
+  }
+
+  encrypt(value) {
+    if (!value) return '';
+    if (!this.safeStorage.isEncryptionAvailable()) throw new Error('Encryption is not available on this Mac; the key was not saved.');
+    return this.safeStorage.encryptString(value).toString('base64');
   }
 
   get hasApiKey() {

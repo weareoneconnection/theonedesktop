@@ -334,7 +334,7 @@ app.whenReady().then(async () => {
 
   // The window does not wait for the runtime: the cloud side of TheOne works
   // while it starts, and the page hears when it is ready.
-  const state = await runtime.start(devApiKey || settings.getApiKey());
+  const state = await runtime.start(...settings.runtimeArgs());
   log(`runtime ${state.status}${state.error ? `: ${state.error}` : ''}`);
   send({ type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
 });

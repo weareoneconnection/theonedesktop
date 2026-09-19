@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
-const { FALLBACK_PATH, mergePath } = require('./policy');
+const { FALLBACK_PATH, codexEnv, mergePath } = require('./policy');
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -53,14 +53,22 @@ class LocalRuntime {
     this.token = '';
     this.state = { status: 'stopped', error: '' };
     this.apiKey = '';
+    this.openaiKey = '';
+    this.codexUsesKey = false;
   }
 
   get baseUrl() {
     return `http://127.0.0.1:${this.port}`;
   }
 
-  async start(apiKey) {
+  async start(apiKey, openaiKey, codexUsesKey) {
     this.apiKey = apiKey || '';
+    this.openaiKey = openaiKey || '';
+    this.codexUsesKey = Boolean(codexUsesKey);
+    const codex = codexEnv({ openaiKey: this.openaiKey, codexUsesKey: this.codexUsesKey, dataDir: this.dataDir });
+    // Signed in again from the current key on every start, so a changed key
+    // is never left behind in an old login.
+    if (codex.CODEX_HOME) fs.rmSync(path.join(codex.CODEX_HOME, 'auth.json'), { force: true });
     if (!fs.existsSync(this.entry)) {
       this.state = { status: 'error', error: `Runtime not found at ${this.entry}` };
       return this.state;
@@ -105,6 +113,11 @@ class LocalRuntime {
       // of turns at 50 after its code was already right.
       AGENT_ENGINE_MAX_TURNS: '150',
       ...(this.apiKey ? { ANTHROPIC_API_KEY: this.apiKey } : {}),
+      // For TheOne's engine on OpenAI models. Not OPENAI_API_KEY: Codex would
+      // take that over the ChatGPT login it runs on, and bill the key instead.
+      ...(this.openaiKey ? { THEONE_OPENAI_API_KEY: this.openaiKey } : {}),
+      // Only when Codex is set to use the key: see codexEnv.
+      ...codex,
     };
 
     this.child = spawn(process.execPath, [this.entry], {
@@ -152,9 +165,9 @@ class LocalRuntime {
     this.state = { status: 'stopped', error: '' };
   }
 
-  async restart(apiKey) {
+  async restart(apiKey, openaiKey, codexUsesKey) {
     await this.stop();
-    return this.start(apiKey);
+    return this.start(apiKey, openaiKey, codexUsesKey);
   }
 
   async request(method, pathname, body, headers = {}) {

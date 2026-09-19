@@ -5,6 +5,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('settingsApi', {
   get: () => ipcRenderer.invoke('settings:get'),
   setApiKey: (value) => ipcRenderer.invoke('settings:setApiKey', value),
+  setOpenAIKey: (value) => ipcRenderer.invoke('settings:setOpenAIKey', value),
+  setCodexUsesApiKey: (value) => ipcRenderer.invoke('settings:setCodexUsesApiKey', value),
   forgetWorkspace: (folder) => ipcRenderer.invoke('settings:forgetWorkspace', folder),
   restartRuntime: () => ipcRenderer.invoke('settings:restartRuntime'),
   engines: () => ipcRenderer.invoke('settings:engines'),

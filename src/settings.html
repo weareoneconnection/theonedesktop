@@ -27,6 +27,10 @@
   li:first-child { border-top: 0; }
   li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   footer { color: var(--faint); font-size: 11px; }
+  .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; cursor: pointer; }
+  .check input { flex: 0 0 auto; margin-top: 3px; }
+  .check small { display: block; color: var(--faint); font-size: 12px; margin-top: 2px; }
+  .check code { font-size: 11px; }
 </style>
 </head>
 <body>
@@ -42,6 +46,21 @@
       <button id="clear" class="ghost">清除</button>
     </div>
     <div class="status" id="keyStatus"></div>
+  </section>
+  <section>
+    <h2>OpenAI API 密钥</h2>
+    <p>让 TheOne 引擎使用 GPT 模型（GPT-6 Astra、GPT-5.6）时需要。同样加密保存在本机。</p>
+    <div class="row">
+      <input id="openaiKey" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false">
+      <button id="openaiSave">保存</button>
+      <button id="openaiClear" class="ghost">清除</button>
+    </div>
+    <div class="status" id="openaiStatus"></div>
+    <label class="check">
+      <input id="codexKey" type="checkbox">
+      <span>Codex 也用这个 API 密钥<small>按 token 计费，不占 ChatGPT 套餐额度。关掉就回到你自己的 <code>codex login</code>（ChatGPT 账号），那份登录不会被改动。</small></span>
+    </label>
+    <div class="status" id="codexKeyStatus"></div>
   </section>
   <section>
     <h2>本机运行时</h2>
@@ -69,6 +88,11 @@
   async function render() {
     const s = await window.settingsApi.get();
     $('keyStatus').innerHTML = s.hasApiKey ? '<span class="ok">已保存密钥</span>' : '还没有密钥';
+    if (!$('codexKey').dataset.busy) {
+      $('codexKey').checked = Boolean(s.codexUsesApiKey);
+      $('codexKey').disabled = !s.hasOpenAIKey;
+    }
+    if (!$('openaiStatus').dataset.busy) $('openaiStatus').innerHTML = s.hasOpenAIKey ? '<span class="ok">已保存密钥</span>' : '还没有密钥（只在用 GPT 模型时需要）';
     $('runtime').innerHTML = runtimeText(s.runtime);
     $('version').textContent = `TheOne ${s.version}`;
     await renderEngines();
@@ -141,6 +165,42 @@
     }
     button.disabled = false;
   };
+  async function saveOpenAI(value) {
+    const status = $('openaiStatus');
+    status.dataset.busy = '1';
+    status.textContent = '正在保存并重启运行时…';
+    try {
+      const r = await window.settingsApi.setOpenAIKey(value);
+      $('openaiKey').value = '';
+      status.innerHTML = r.hasOpenAIKey ? '<span class="ok">已保存密钥</span>' : '已清除';
+      $('runtime').innerHTML = runtimeText(r.runtime);
+    } catch (e) {
+      status.innerHTML = `<span class="bad">${String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}</span>`;
+    }
+    delete status.dataset.busy;
+  }
+  $('codexKey').onchange = async () => {
+    const box = $('codexKey');
+    const status = $('codexKeyStatus');
+    box.dataset.busy = '1';
+    box.disabled = true;
+    status.textContent = '正在切换并重启运行时…';
+    try {
+      const r = await window.settingsApi.setCodexUsesApiKey(box.checked);
+      box.checked = r.codexUsesApiKey;
+      status.innerHTML = r.codexUsesApiKey ? '<span class="ok">Codex 现在用 OpenAI API 密钥</span>' : 'Codex 用你自己的 ChatGPT 登录';
+      $('runtime').innerHTML = runtimeText(r.runtime);
+    } catch (e) {
+      box.checked = !box.checked;
+      status.innerHTML = `<span class="bad">${String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}</span>`;
+    }
+    box.disabled = false;
+    delete box.dataset.busy;
+    renderEngines();
+  };
+  $('openaiSave').onclick = () => saveOpenAI($('openaiKey').value);
+  $('openaiClear').onclick = () => saveOpenAI('');
+  $('openaiKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveOpenAI($('openaiKey').value); });
   $('save').onclick = () => save($('key').value);
   $('clear').onclick = () => save('');
   $('key').addEventListener('keydown', (e) => { if (e.key === 'Enter') save($('key').value); });

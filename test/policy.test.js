@@ -251,6 +251,34 @@ test('a local task can name the Claude model it runs on', () => {
   assert.throws(() => policy.buildLocalTaskInput({ ...base, engine: 'claude', model: '--settings /tmp/x' }, picked), /Unknown model/);
 });
 
+test('only TheOne\'s own engine runs an OpenAI model', () => {
+  const picked = ['/Users/me/code/app'];
+  const base = { objective: 'fix the failing login test', workspacePath: '/Users/me/code/app' };
+  assert.equal(policy.buildLocalTaskInput({ ...base, model: 'gpt-6-astra' }, picked).model, 'gpt-6-astra');
+  assert.equal(policy.buildLocalTaskInput({ ...base, engine: 'theone', model: 'gpt-5.6-luna' }, picked).model, 'gpt-5.6-luna');
+  // The Claude CLI cannot run one.
+  assert.throws(() => policy.buildLocalTaskInput({ ...base, engine: 'claude', model: 'gpt-6-astra' }, picked), /Unknown model/);
+  assert.throws(() => policy.buildLocalTaskInput({ ...base, model: 'gpt-4o-evil' }, picked), /Unknown model/);
+  assert.equal(policy.isOpenAIModel('gpt-5.6-sol'), true);
+  assert.equal(policy.isOpenAIModel('claude-opus-5'), false);
+});
+
+test("Codex uses the OpenAI key only when asked, in a home of its own", () => {
+  const dataDir = '/Users/me/Library/Application Support/TheOne';
+  const key = 'sk-proj-' + 'a'.repeat(40);
+  // Off, or no key: Codex keeps the person's own login and gets nothing.
+  assert.deepEqual(policy.codexEnv({ openaiKey: key, codexUsesKey: false, dataDir }), {});
+  assert.deepEqual(policy.codexEnv({ openaiKey: '', codexUsesKey: true, dataDir }), {});
+  // On: the key, and a CODEX_HOME that is not ~/.codex.
+  assert.deepEqual(policy.codexEnv({ openaiKey: key, codexUsesKey: true, dataDir }), { OPENAI_API_KEY: key, CODEX_HOME: path.join(dataDir, 'codex-api') });
+});
+
+test('an OpenAI key is told apart from an Anthropic one', () => {
+  assert.equal(policy.looksLikeOpenAIKey('sk-proj-' + 'a'.repeat(40)), true);
+  assert.equal(policy.looksLikeOpenAIKey('sk-ant-api03-' + 'a'.repeat(40)), false);
+  assert.equal(policy.looksLikeOpenAIKey('hello'), false);
+});
+
 test("a thread's next turn may continue in a copy the runtime kept, and only there", () => {
   const picked = ['/Users/me/code/app'];
   const copies = '/Users/me/Library/Application Support/TheOne/tasks';

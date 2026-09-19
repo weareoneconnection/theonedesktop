@@ -9,7 +9,7 @@
 
 const path = require('node:path');
 const { dialog, ipcMain, Notification, shell, app } = require('electron');
-const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, looksLikeAnthropicKey, steeringMessage, toLocalId } = require('./policy');
+const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
 
 function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
@@ -65,9 +65,13 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
   });
 
   handle('desktop:createTask', async (body) => {
-    // Codex brings its own account; only the engines that call Anthropic need
-    // the person's Anthropic key.
-    if (!settings.hasApiKey && engineName(body && body.engine) !== 'codex') {
+    // Codex brings its own account; TheOne on a GPT model needs the OpenAI
+    // key; the rest call Anthropic and need that key.
+    const onOpenAI = engineName(body && body.engine) === 'theone' && isOpenAIModel(body && body.model);
+    if (onOpenAI && !settings.hasOpenAIKey) {
+      throw new Error('Add your OpenAI API key in TheOne → Settings (⌘,) to run OpenAI models on this Mac.');
+    }
+    if (!onOpenAI && !settings.hasApiKey && engineName(body && body.engine) !== 'codex') {
       throw new Error('Add your Anthropic API key in TheOne → Settings (⌘,) to run tasks on this Mac.');
     }
     // A thread's next turn may continue in a copy the runtime kept.
@@ -169,17 +173,38 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
   // checked against the file it was loaded from.
   ipcMain.handle('settings:get', (event) => {
     if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
-    return { hasApiKey: settings.hasApiKey, runtime: runtime.state, workspaces: settings.workspaces, version: app.getVersion() };
+    return { hasApiKey: settings.hasApiKey, hasOpenAIKey: settings.hasOpenAIKey, codexUsesApiKey: settings.codexUsesApiKey, runtime: runtime.state, workspaces: settings.workspaces, version: app.getVersion() };
   });
   ipcMain.handle('settings:setApiKey', async (event, value) => {
     if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
     const key = String(value || '').trim();
     if (key && !looksLikeAnthropicKey(key)) throw new Error('That does not look like an Anthropic API key (sk-ant-…).');
     settings.setApiKey(key);
-    const state = await runtime.restart(key);
+    const state = await runtime.restart(...settings.runtimeArgs());
     const window = getWindow();
     if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
     return { hasApiKey: settings.hasApiKey, runtime: state };
+  });
+  ipcMain.handle('settings:setOpenAIKey', async (event, value) => {
+    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
+    const key = String(value || '').trim();
+    if (key && !looksLikeOpenAIKey(key)) throw new Error('That does not look like an OpenAI API key (sk-…).');
+    settings.setOpenAIKey(key);
+    // Without a key there is nothing for Codex to use: back to its own login.
+    if (!key) settings.codexUsesApiKey = false;
+    const state = await runtime.restart(...settings.runtimeArgs());
+    const window = getWindow();
+    if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
+    return { hasOpenAIKey: settings.hasOpenAIKey, codexUsesApiKey: settings.codexUsesApiKey, runtime: state };
+  });
+  ipcMain.handle('settings:setCodexUsesApiKey', async (event, value) => {
+    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
+    if (value && !settings.hasOpenAIKey) throw new Error('Save an OpenAI API key first.');
+    settings.codexUsesApiKey = Boolean(value);
+    const state = await runtime.restart(...settings.runtimeArgs());
+    const window = getWindow();
+    if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
+    return { codexUsesApiKey: settings.codexUsesApiKey, runtime: state };
   });
   // Bring the local runtime back without quitting the app. It can die for
   // reasons that have nothing to do with the app — a crash, the machine
@@ -188,7 +213,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
   ipcMain.handle('settings:restartRuntime', async (event) => {
     if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
     // The same key the app started the runtime with, decrypted from the keychain.
-    const state = await runtime.restart(settings.devApiKey || settings.getApiKey());
+    const state = await runtime.restart(...settings.runtimeArgs());
     const window = getWindow();
     if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
     return { runtime: state, hasApiKey: settings.hasApiKey };
