@@ -370,6 +370,39 @@ function codexEnv({ openaiKey, codexUsesKey, dataDir }) {
   return { OPENAI_API_KEY: openaiKey, CODEX_HOME: path.join(dataDir, 'codex-api') };
 }
 
+/**
+ * What each local task cost, for the account menu's monthly total.
+ *
+ * Local tasks never reach the server, so the server's figure left them out:
+ * a month of runs on this Mac read as "$0.00 · 0 个任务". The page prices
+ * them with the same table as the task card; an engine that reports its own
+ * cost (the Claude CLI) is believed over the table.
+ */
+function usageRows(items) {
+  return (Array.isArray(items) ? items : []).flatMap((task) => {
+    if (!task || typeof task !== 'object') return [];
+    const step = (Array.isArray(task.steps) ? task.steps : []).find((item) => item && item.action === 'code.patch.apply');
+    if (!step) return [];
+    const output = step.output || {};
+    const receipt = output.agentReceipt || {};
+    const usage = output.usage || receipt.usage || null;
+    return [{
+      taskId: toLocalId(String(task.id || '')),
+      createdAt: String(task.createdAt || ''),
+      status: String(task.status || ''),
+      engine: String(output.engine || ''),
+      model: output.engineModel ? String(output.engineModel) : '',
+      reportedUsd: typeof output.engineCostUsd === 'number' ? output.engineCostUsd : null,
+      usage: usage && typeof usage === 'object' ? {
+        inputTokens: Number(usage.inputTokens) || 0,
+        outputTokens: Number(usage.outputTokens) || 0,
+        cacheCreationInputTokens: Number(usage.cacheCreationInputTokens) || 0,
+        cacheReadInputTokens: Number(usage.cacheReadInputTokens) || 0,
+      } : null,
+    }];
+  });
+}
+
 function looksLikeOpenAIKey(value) {
   const key = String(value || '').trim();
   return /^sk-[A-Za-z0-9_-]{20,}$/.test(key) && !key.startsWith('sk-ant-');
@@ -389,6 +422,7 @@ module.exports = {
   isOpenAIModel,
   looksLikeOpenAIKey,
   codexEnv,
+  usageRows,
   ENGINES,
   engineName,
   engineAction,

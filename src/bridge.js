@@ -9,7 +9,7 @@
 
 const path = require('node:path');
 const { dialog, ipcMain, Notification, shell, app } = require('electron');
-const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId } = require('./policy');
+const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
 
 function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
@@ -29,6 +29,8 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     platform: process.platform,
     runtime: runtime.state,
     hasApiKey: settings.hasApiKey,
+    hasOpenAIKey: settings.hasOpenAIKey,
+    codexUsesApiKey: settings.codexUsesApiKey,
     workspaces: settings.workspaces,
   });
 
@@ -116,6 +118,14 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
       status: String((body && body.status) || ''),
       done: Boolean(body && body.done),
     };
+  });
+
+  // What the tasks on this Mac cost: the runtime's recent tasks, reduced to
+  // what the account menu needs. Logs and diffs stay here.
+  handle('desktop:usage', async () => {
+    if (runtime.state.status !== 'ready') return { rows: [], available: false };
+    const body = await runtime.request('GET', '/v1/tasks?limit=200');
+    return { rows: usageRows(body && body.items), available: true };
   });
 
   handle('desktop:pendingTasks', async () => {

@@ -273,6 +273,20 @@ test("Codex uses the OpenAI key only when asked, in a home of its own", () => {
   assert.deepEqual(policy.codexEnv({ openaiKey: key, codexUsesKey: true, dataDir }), { OPENAI_API_KEY: key, CODEX_HOME: path.join(dataDir, 'codex-api') });
 });
 
+test('a local task\'s cost is read off its output, with the reported figure kept apart', () => {
+  const rows = policy.usageRows([
+    { id: 'abc', createdAt: '2026-09-19T12:19:24.002Z', status: 'success', steps: [{ action: 'code.patch.apply', output: { engine: 'claude', engineModel: 'claude-opus-4-8', engineCostUsd: 0.81, usage: { inputTokens: 9707, outputTokens: 186 } } }] },
+    { id: 'def', createdAt: '2026-09-19T12:30:53.281Z', status: 'success', steps: [{ action: 'code.patch.apply', output: { engine: 'theone', engineModel: 'claude-sonnet-5', agentReceipt: { usage: { inputTokens: 20, outputTokens: 15452, cacheReadInputTokens: 172152, cacheCreationInputTokens: 36689 } } } }] },
+    { id: 'ghi', steps: [{ action: 'chat.reply', output: {} }] },
+    null,
+  ]);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0], { taskId: 'local:abc', createdAt: '2026-09-19T12:19:24.002Z', status: 'success', engine: 'claude', model: 'claude-opus-4-8', reportedUsd: 0.81, usage: { inputTokens: 9707, outputTokens: 186, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 } });
+  assert.equal(rows[1].reportedUsd, null);
+  assert.equal(rows[1].usage.cacheReadInputTokens, 172152);
+  assert.deepEqual(policy.usageRows(undefined), []);
+});
+
 test('an OpenAI key is told apart from an Anthropic one', () => {
   assert.equal(policy.looksLikeOpenAIKey('sk-proj-' + 'a'.repeat(40)), true);
   assert.equal(policy.looksLikeOpenAIKey('sk-ant-api03-' + 'a'.repeat(40)), false);

@@ -32,6 +32,8 @@ if (allowed.includes(window.location.origin)) {
     /** New log lines for a running task, from a cursor. */
     taskLogs: (taskId, since) => ipcRenderer.invoke('desktop:taskLogs', taskId, since),
     pendingTasks: () => ipcRenderer.invoke('desktop:pendingTasks'),
+    /** What the tasks on this Mac cost, for the account menu. */
+    usage: () => ipcRenderer.invoke('desktop:usage'),
     taskAction: (taskId, action) => ipcRenderer.invoke('desktop:taskAction', taskId, action),
     steerTask: (taskId, message) => ipcRenderer.invoke('desktop:steerTask', taskId, message),
     reveal: (folder) => ipcRenderer.invoke('desktop:reveal', folder),
