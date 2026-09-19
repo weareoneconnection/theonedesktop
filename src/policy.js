@@ -271,6 +271,20 @@ function compactTask(raw) {
         rollbackToken: String(output.rollbackToken || ''),
         workspaceMode: String(output.workspaceMode || ''),
         workspacePath: String(output.workspacePath || ''),
+        // Whether the copy was kept is what lets the next turn of a thread
+        // continue in it; without it the page believed every copy was gone
+        // and sent the next turn to the original folder instead.
+        workspaceKept: output.workspaceKept === true,
+        // Who did the work and what it cost, as the task card shows it.
+        engine: String(output.engine || ''),
+        engineRequested: String(output.engineRequested || ''),
+        engineModel: output.engineModel ? String(output.engineModel) : null,
+        engineCostUsd: typeof output.engineCostUsd === 'number' ? output.engineCostUsd : null,
+        changedFiles: Array.isArray(output.changedFiles) ? output.changedFiles.slice(0, 200) : [],
+        repo: String(output.repo || ''),
+        prUrl: String(output.prUrl || ''),
+        branch: String(output.branch || ''),
+        ci: output.ci && typeof output.ci === 'object' ? output.ci : null,
         keptAttempt: typeof output.keptAttempt === 'number' ? output.keptAttempt : null,
         attempts: Array.isArray(output.attempts) ? output.attempts : null,
         setupOutput: String(output.setupOutput || '').slice(0, 4000),

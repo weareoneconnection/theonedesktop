@@ -273,3 +273,20 @@ test('a local task carries the thread it belongs to, and nothing malformed', () 
   assert.equal('threadId' in bad, false);
   assert.equal('parentTaskId' in bad, false);
 });
+
+test('a local task reports whether its copy was kept, and who did the work', () => {
+  const task = policy.compactTask({ id: 'T1abc', status: 'success', logs: [], steps: [{ stepId: 's', action: 'code.patch.apply', status: 'success', output: {
+    workspaceMode: 'worktree', workspacePath: '/data/tasks/T1abc', workspaceKept: true,
+    engine: 'claude', engineRequested: 'claude', engineModel: 'claude-opus-4-8', engineCostUsd: 3.68,
+    changedFiles: [{ path: 'a.ts', changed: true }], repo: '', prUrl: '', branch: '', ci: null,
+  } }] });
+  const output = task.steps[0].output;
+  assert.equal(output.workspaceKept, true);
+  assert.equal(output.engine, 'claude');
+  assert.equal(output.engineModel, 'claude-opus-4-8');
+  assert.equal(output.engineCostUsd, 3.68);
+  assert.deepEqual(output.changedFiles, [{ path: 'a.ts', changed: true }]);
+  const bare = policy.compactTask({ id: 'T2abc', status: 'success', logs: [], steps: [{ stepId: 's', action: 'code.patch.apply', status: 'success', output: {} }] });
+  assert.equal(bare.steps[0].output.workspaceKept, false);
+  assert.equal(bare.steps[0].output.engineCostUsd, null);
+});
