@@ -250,3 +250,26 @@ test('a local task can name the Claude model it runs on', () => {
   // It becomes a CLI flag, so nothing outside the list gets through.
   assert.throws(() => policy.buildLocalTaskInput({ ...base, engine: 'claude', model: '--settings /tmp/x' }, picked), /Unknown model/);
 });
+
+test("a thread's next turn may continue in a copy the runtime kept, and only there", () => {
+  const picked = ['/Users/me/code/app'];
+  const copies = '/Users/me/Library/Application Support/TheOne/tasks';
+  const turn = { objective: 'now also fix the other call site', workspacePath: `${copies}/Ab12cd34`, keepWorkspace: true };
+  assert.equal(policy.buildLocalTaskInput(turn, picked, copies).workspacePath, `${copies}/Ab12cd34`);
+  // Without the copies root it is refused, as before.
+  assert.throws(() => policy.buildLocalTaskInput(turn, picked), /not opened/);
+  // The copies directory itself would expose every other task's copy.
+  assert.throws(() => policy.buildLocalTaskInput({ ...turn, workspacePath: copies }, picked, copies), /not opened/);
+  assert.throws(() => policy.buildLocalTaskInput({ ...turn, workspacePath: `${copies}/../secrets` }, picked, copies), /not opened/);
+});
+
+test('a local task carries the thread it belongs to, and nothing malformed', () => {
+  const picked = ['/Users/me/code/app'];
+  const base = { objective: 'fix the failing login test', workspacePath: '/Users/me/code/app' };
+  const input = policy.buildLocalTaskInput({ ...base, threadId: 'thread_20260919_abc123', parentTaskId: 'local:Ab12cd34' }, picked);
+  assert.equal(input.threadId, 'thread_20260919_abc123');
+  assert.equal(input.parentTaskId, 'local:Ab12cd34');
+  const bad = policy.buildLocalTaskInput({ ...base, threadId: '../../etc', parentTaskId: 'x' }, picked);
+  assert.equal('threadId' in bad, false);
+  assert.equal('parentTaskId' in bad, false);
+});

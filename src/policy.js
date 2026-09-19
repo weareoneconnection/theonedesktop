@@ -172,7 +172,15 @@ function engineAction(availability) {
 /** The models the task form offers. Keep in step with MODEL_OPTIONS in theone-complete. */
 const CLAUDE_MODELS = ['claude-sonnet-5', 'claude-opus-5', 'claude-fable-5-1'];
 
-function buildLocalTaskInput(body, pickedWorkspaces) {
+/**
+ * `taskCopiesRoot` is where the runtime keeps each task's working copy. A
+ * thread's next turn continues in the copy the last turn left behind, which
+ * lives there rather than in a folder the person picked: without this, the
+ * turn after a kept copy was refused as "not opened in TheOne". Only a copy
+ * inside it is accepted, never the directory itself, which would hand one
+ * task every other task's copy.
+ */
+function buildLocalTaskInput(body, pickedWorkspaces, taskCopiesRoot) {
   const value = body && typeof body === 'object' ? body : {};
   const objective = String(value.objective || '').trim();
   const workspacePath = String(value.workspacePath || '').trim();
@@ -180,7 +188,10 @@ function buildLocalTaskInput(body, pickedWorkspaces) {
   if (objective.length > 8000) throw new Error('The objective is too long (8,000 characters maximum).');
   if (!workspacePath || !path.isAbsolute(workspacePath)) throw new Error('Choose a folder on this Mac.');
   const picked = (pickedWorkspaces || []).some((folder) => isInside(folder, workspacePath));
-  if (!picked) throw new Error('That folder was not opened in TheOne. Use "Open folder…" first.');
+  const taskCopy = Boolean(taskCopiesRoot)
+    && isInside(taskCopiesRoot, workspacePath)
+    && path.resolve(taskCopiesRoot) !== path.resolve(workspacePath);
+  if (!picked && !taskCopy) throw new Error('That folder was not opened in TheOne. Use "Open folder…" first.');
 
   const input = { objective, workspacePath };
   // Files handed to the run — a screenshot, a log, a spec. The runtime writes
@@ -210,6 +221,12 @@ function buildLocalTaskInput(body, pickedWorkspaces) {
   // asks for this; dropped silently here, every local follow-up looked like
   // a brand new task with no memory of what the thread had already done.
   if (value.keepWorkspace === true) input.keepWorkspace = true;
+  // Which conversation this turn belongs to. The runtime does not act on it;
+  // it is kept with the task so its record says which thread it was part of.
+  const threadId = String(value.threadId || '').trim();
+  if (/^[A-Za-z0-9_:-]{6,80}$/.test(threadId)) input.threadId = threadId;
+  const parentTaskId = String(value.parentTaskId || '').trim();
+  if (/^[A-Za-z0-9_:-]{4,80}$/.test(parentTaskId)) input.parentTaskId = parentTaskId;
   // An analysis reads and reports; the runtime runs it once, in a copy.
   if (value.analyze === true) {
     input.analyze = true;

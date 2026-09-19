@@ -7,6 +7,7 @@
  * never leaves the main process; the page gets results, not credentials.
  */
 
+const path = require('node:path');
 const { dialog, ipcMain, Notification, shell, app } = require('electron');
 const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, looksLikeAnthropicKey, steeringMessage, toLocalId } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
@@ -69,7 +70,8 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     if (!settings.hasApiKey && engineName(body && body.engine) !== 'codex') {
       throw new Error('Add your Anthropic API key in TheOne → Settings (⌘,) to run tasks on this Mac.');
     }
-    const input = buildLocalTaskInput(body, settings.workspaces);
+    // A thread's next turn may continue in a copy the runtime kept.
+    const input = buildLocalTaskInput(body, settings.workspaces, path.join(runtime.dataDir, 'tasks'));
     const created = await runtime.request('POST', '/v1/actions/execute', {
       action: 'code.patch.apply',
       approvalMode: 'manual',
