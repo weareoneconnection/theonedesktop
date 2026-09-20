@@ -403,6 +403,30 @@ function usageRows(items) {
   });
 }
 
+/**
+ * What the chat agent may run on this Mac, and where.
+ *
+ * The agent itself runs in the cloud; these are the calls it hands back to
+ * the app because only this machine can answer them. Reading is all it gets:
+ * a write or a shell command from a page would be a remote execution hole,
+ * and the folder gate is the same one every local task passes.
+ */
+const LOCAL_AGENT_ACTIONS = new Set(['file.read', 'file.list', 'file.exists']);
+
+function localAgentCall(body, pickedWorkspaces) {
+  const value = body && typeof body === 'object' ? body : {};
+  const action = String(value.action || '').trim();
+  if (!LOCAL_AGENT_ACTIONS.has(action)) throw new Error(`This Mac does not run "${action.slice(0, 40)}" for the chat agent.`);
+  const input = value.input && typeof value.input === 'object' ? value.input : {};
+  const target = String(input.path || '').trim();
+  if (!target || !path.isAbsolute(target)) throw new Error('A local read needs an absolute path.');
+  if (!(pickedWorkspaces || []).some((folder) => isInside(folder, target))) {
+    throw new Error('That path is not inside a folder opened in TheOne.');
+  }
+  const limit = Number(input.limit);
+  return { action, input: { path: target, ...(Number.isFinite(limit) && limit > 0 ? { limit: Math.min(Math.floor(limit), 2000) } : {}) } };
+}
+
 function looksLikeOpenAIKey(value) {
   const key = String(value || '').trim();
   return /^sk-[A-Za-z0-9_-]{20,}$/.test(key) && !key.startsWith('sk-ant-');
@@ -423,6 +447,8 @@ module.exports = {
   looksLikeOpenAIKey,
   codexEnv,
   usageRows,
+  localAgentCall,
+  LOCAL_AGENT_ACTIONS,
   ENGINES,
   engineName,
   engineAction,

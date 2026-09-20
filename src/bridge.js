@@ -9,7 +9,7 @@
 
 const path = require('node:path');
 const { dialog, ipcMain, Notification, shell, app } = require('electron');
-const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
+const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
 
 function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
@@ -126,6 +126,20 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     if (runtime.state.status !== 'ready') return { rows: [], available: false };
     const body = await runtime.request('GET', '/v1/tasks?limit=200');
     return { rows: usageRows(body && body.items), available: true };
+  });
+
+  // A read the chat agent asked this Mac for: the runtime answers it, the
+  // allowlist and the folder gate decide whether it may.
+  handle('desktop:runAction', async (body) => {
+    if (runtime.state.status !== 'ready') throw new Error('The local runtime is not running.');
+    const call = localAgentCall(body, settings.workspaces);
+    const result = await runtime.request('POST', '/v1/actions/execute', {
+      action: call.action,
+      approvalMode: 'auto',
+      input: call.input,
+    });
+    const step = (result && Array.isArray(result.steps) ? result.steps : []).find((item) => item && item.output);
+    return { ok: true, action: call.action, output: (step && step.output) || result || null };
   });
 
   handle('desktop:pendingTasks', async () => {

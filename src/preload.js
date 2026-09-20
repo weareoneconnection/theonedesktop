@@ -34,6 +34,8 @@ if (allowed.includes(window.location.origin)) {
     pendingTasks: () => ipcRenderer.invoke('desktop:pendingTasks'),
     /** What the tasks on this Mac cost, for the account menu. */
     usage: () => ipcRenderer.invoke('desktop:usage'),
+    /** A read the chat agent asked this Mac for; allowlisted and folder-gated. */
+    runAction: (action, input) => ipcRenderer.invoke('desktop:runAction', { action, input }),
     taskAction: (taskId, action) => ipcRenderer.invoke('desktop:taskAction', taskId, action),
     steerTask: (taskId, message) => ipcRenderer.invoke('desktop:steerTask', taskId, message),
     reveal: (folder) => ipcRenderer.invoke('desktop:reveal', folder),

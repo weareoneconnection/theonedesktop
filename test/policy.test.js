@@ -287,6 +287,21 @@ test('a local task\'s cost is read off its output, with the reported figure kept
   assert.deepEqual(policy.usageRows(undefined), []);
 });
 
+test('the chat agent may only read, and only inside an opened folder', () => {
+  const picked = ['/Users/me/code/app'];
+  assert.deepEqual(policy.localAgentCall({ action: 'file.read', input: { path: '/Users/me/code/app/src/a.ts', limit: 50 } }, picked),
+    { action: 'file.read', input: { path: '/Users/me/code/app/src/a.ts', limit: 50 } });
+  assert.deepEqual(policy.localAgentCall({ action: 'file.list', input: { path: '/Users/me/code/app' } }, picked),
+    { action: 'file.list', input: { path: '/Users/me/code/app' } });
+  // Writing, running and anything else is not on the list.
+  for (const action of ['file.write', 'shell.run', 'code.patch.apply', '']) {
+    assert.throws(() => policy.localAgentCall({ action, input: { path: '/Users/me/code/app/a' } }, picked), /does not run/);
+  }
+  // Outside the opened folders, and relative paths, are refused.
+  assert.throws(() => policy.localAgentCall({ action: 'file.read', input: { path: '/Users/me/.ssh/id_rsa' } }, picked), /not inside a folder/);
+  assert.throws(() => policy.localAgentCall({ action: 'file.read', input: { path: 'src/a.ts' } }, picked), /absolute path/);
+});
+
 test('an OpenAI key is told apart from an Anthropic one', () => {
   assert.equal(policy.looksLikeOpenAIKey('sk-proj-' + 'a'.repeat(40)), true);
   assert.equal(policy.looksLikeOpenAIKey('sk-ant-api03-' + 'a'.repeat(40)), false);
