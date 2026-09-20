@@ -8,9 +8,57 @@
  */
 
 const path = require('node:path');
+const { access, readFile } = require('node:fs/promises');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
 const { dialog, ipcMain, Notification, shell, app } = require('electron');
 const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
+
+const execFileAsync = promisify(execFile);
+
+async function exists(file) {
+  try { await access(file); return true; } catch { return false; }
+}
+
+/** Small, read-only project fingerprint shown before a workspace is bound. */
+async function inspectWorkspace(folder) {
+  const packagePath = path.join(folder, 'package.json');
+  const [hasPackage, hasPyProject, hasCargo, hasGo, hasPnpm, hasYarn, hasBun] = await Promise.all([
+    exists(packagePath), exists(path.join(folder, 'pyproject.toml')), exists(path.join(folder, 'Cargo.toml')),
+    exists(path.join(folder, 'go.mod')), exists(path.join(folder, 'pnpm-lock.yaml')),
+    exists(path.join(folder, 'yarn.lock')), exists(path.join(folder, 'bun.lockb')),
+  ]);
+  let language = hasPackage ? 'Node.js' : hasPyProject ? 'Python' : hasCargo ? 'Rust' : hasGo ? 'Go' : '';
+  if (hasPackage) {
+    try {
+      const pkg = JSON.parse(await readFile(packagePath, 'utf8'));
+      if (pkg && (pkg.devDependencies?.typescript || pkg.dependencies?.typescript)) language = 'TypeScript';
+    } catch { /* malformed package metadata is not a bridge failure */ }
+  }
+  let git = false;
+  let branch = '';
+  let dirtyFiles = 0;
+  try {
+    const root = await execFileAsync('git', ['-C', folder, 'rev-parse', '--show-toplevel'], { timeout: 3_000 });
+    git = Boolean(String(root.stdout || '').trim());
+    const [branchResult, statusResult] = await Promise.all([
+      execFileAsync('git', ['-C', folder, 'branch', '--show-current'], { timeout: 3_000 }),
+      execFileAsync('git', ['-C', folder, 'status', '--porcelain'], { timeout: 3_000 }),
+    ]);
+    branch = String(branchResult.stdout || '').trim();
+    dirtyFiles = String(statusResult.stdout || '').split('\n').filter(Boolean).length;
+  } catch { /* an ordinary folder is still a valid workspace */ }
+  return {
+    path: folder,
+    name: path.basename(folder),
+    git,
+    branch,
+    dirtyFiles,
+    language,
+    packageManager: hasPnpm ? 'pnpm' : hasYarn ? 'Yarn' : hasBun ? 'Bun' : hasPackage ? 'npm' : '',
+  };
+}
 
 function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
   const guard = (handler) => async (event, ...args) => {
@@ -50,6 +98,13 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
 
   handle('desktop:forgetWorkspace', async (folder) => settings.removeWorkspace(String(folder || '')));
 
+  handle('desktop:inspectWorkspace', async (folder) => {
+    const target = path.resolve(String(folder || ''));
+    const opened = settings.workspaces.some((item) => target === path.resolve(item));
+    if (!opened) throw new Error('That folder was not opened in TheOne.');
+    return inspectWorkspace(target);
+  });
+
   handle('desktop:openSettings', async () => { openSettings(); return true; });
 
   // Which engines this Mac can run, straight from the runtime that would run
@@ -67,6 +122,9 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
   });
 
   handle('desktop:createTask', async (body) => {
+    if (runtime.state.status !== 'ready') {
+      throw new Error('本机 Code Runtime 未连接。请在 TheOne Desktop 设置中启动本机运行时后重试。');
+    }
     // Codex brings its own account; TheOne on a GPT model needs the OpenAI
     // key; the rest call Anthropic and need that key.
     const onOpenAI = engineName(body && body.engine) === 'theone' && isOpenAIModel(body && body.model);
@@ -79,8 +137,8 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     // A thread's next turn may continue in a copy the runtime kept.
     const input = buildLocalTaskInput(body, settings.workspaces, path.join(runtime.dataDir, 'tasks'));
     const created = await runtime.request('POST', '/v1/actions/execute', {
-      action: 'code.patch.apply',
-      approvalMode: 'manual',
+      action: input.analyze === true ? 'code.workspace.analyze' : 'code.patch.apply',
+      approvalMode: input.analyze === true ? 'auto' : 'manual',
       input,
     }, { 'x-oneclaw-dispatch': 'background' });
     const id = created && (created.id || (created.task && created.task.id));

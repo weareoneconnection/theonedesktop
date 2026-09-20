@@ -300,7 +300,7 @@ function compactTask(raw) {
     };
   }) : [];
   const planned = task.metadata && task.metadata.normalizedTask && Array.isArray(task.metadata.normalizedTask.steps) ? task.metadata.normalizedTask.steps : [];
-  const agentInput = (planned.find((step) => step && step.action === 'code.patch.apply') || {}).input || {};
+  const agentInput = (planned.find((step) => step && ['code.patch.apply', 'code.workspace.analyze'].includes(step.action)) || {}).input || {};
   return {
     id: toLocalId(String(task.id || '')),
     status: String(task.status || ''),
