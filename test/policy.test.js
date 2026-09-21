@@ -302,6 +302,24 @@ test('the chat agent may only read, and only inside an opened folder', () => {
   assert.throws(() => policy.localAgentCall({ action: 'file.read', input: { path: 'src/a.ts' } }, picked), /absolute path/);
 });
 
+test('a search carries what a search needs, and nothing the page added', () => {
+  const picked = ['/Users/me/code/app'];
+  assert.deepEqual(
+    policy.localAgentCall({ action: 'file.search', input: { path: '/Users/me/code/app', query: 'round2', extensions: 'ts' } }, picked),
+    { action: 'file.search', input: { path: '/Users/me/code/app', query: 'round2', extensions: 'ts' } },
+  );
+  // The input is rebuilt field by field, so anything else is dropped rather
+  // than forwarded to the runtime.
+  const cleaned = policy.localAgentCall(
+    { action: 'file.search', input: { path: '/Users/me/code/app', query: 'x', cwd: '/etc', command: 'rm -rf /' } },
+    picked,
+  );
+  assert.deepEqual(cleaned.input, { path: '/Users/me/code/app', query: 'x' });
+  // A search with nothing to look for, and one outside the opened folders.
+  assert.throws(() => policy.localAgentCall({ action: 'file.search', input: { path: '/Users/me/code/app' } }, picked), /look for/);
+  assert.throws(() => policy.localAgentCall({ action: 'file.search', input: { path: '/etc', query: 'x' } }, picked), /not inside a folder/);
+});
+
 test('an OpenAI key is told apart from an Anthropic one', () => {
   assert.equal(policy.looksLikeOpenAIKey('sk-proj-' + 'a'.repeat(40)), true);
   assert.equal(policy.looksLikeOpenAIKey('sk-ant-api03-' + 'a'.repeat(40)), false);

@@ -411,7 +411,7 @@ function usageRows(items) {
  * a write or a shell command from a page would be a remote execution hole,
  * and the folder gate is the same one every local task passes.
  */
-const LOCAL_AGENT_ACTIONS = new Set(['file.read', 'file.list', 'file.exists']);
+const LOCAL_AGENT_ACTIONS = new Set(['file.read', 'file.list', 'file.exists', 'file.search']);
 
 function localAgentCall(body, pickedWorkspaces) {
   const value = body && typeof body === 'object' ? body : {};
@@ -424,7 +424,21 @@ function localAgentCall(body, pickedWorkspaces) {
     throw new Error('That path is not inside a folder opened in TheOne.');
   }
   const limit = Number(input.limit);
-  return { action, input: { path: target, ...(Number.isFinite(limit) && limit > 0 ? { limit: Math.min(Math.floor(limit), 2000) } : {}) } };
+  const bounded = Number.isFinite(limit) && limit > 0 ? { limit: Math.min(Math.floor(limit), 2000) } : {};
+
+  // Rebuilt field by field rather than passed through: whatever the page
+  // sends, only what this action is defined to take reaches the runtime.
+  if (action === 'file.search') {
+    const query = String(input.query || '').trim();
+    if (!query) throw new Error('A search needs something to look for.');
+    const extensions = String(input.extensions || '').trim();
+    return {
+      action,
+      input: { path: target, query: query.slice(0, 200), ...(extensions ? { extensions: extensions.slice(0, 120) } : {}), ...bounded },
+    };
+  }
+
+  return { action, input: { path: target, ...bounded } };
 }
 
 function looksLikeOpenAIKey(value) {
