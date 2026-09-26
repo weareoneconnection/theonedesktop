@@ -1,7 +1,7 @@
 {
   "name": "theone-desktop",
   "productName": "TheOne",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "TheOne for macOS: the OS surface plus a local agent runtime that works on folders on this Mac.",
   "private": true,
   "main": "src/main.js",
@@ -12,7 +12,7 @@
     "bundle:runtime": "node scripts/bundle-runtime.mjs",
     "test": "node --test test/*.test.js",
     "e2e": "node test-e2e/run.mjs",
-    "dist:mac": "npm run bundle:runtime && electron-builder --mac --arm64 --publish never",
+    "dist:mac": "npm run bundle:runtime && electron-builder --mac --arm64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false",
     "release:mac": "npm run bundle:runtime && electron-builder --mac --arm64 --publish always"
   },
   "build": {

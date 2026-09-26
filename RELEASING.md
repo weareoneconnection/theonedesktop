@@ -27,5 +27,8 @@ only into a signed app, so every release must be signed and notarized.
 Installed apps check about 20 seconds after launch and every 4 hours, download
 in the background, and install on quit or from **TheOne → 重启以更新**.
 
-`npm run dist:mac` builds locally without publishing (unsigned when no
-certificate is found; such a build runs but cannot update itself).
+`npm run dist:mac` builds without publishing and without a Developer ID: the
+whole bundle is signed ad hoc (`identity: "-"`, no hardened runtime, no
+notarization). A downloaded ad-hoc build opens through System Settings →
+Privacy & Security → Open Anyway; it cannot update itself. Without the ad-hoc
+signature macOS calls a downloaded app "damaged" and offers no way to open it.
