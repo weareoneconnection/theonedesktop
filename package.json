@@ -66,7 +66,7 @@
       {
         "provider": "github",
         "owner": "weareoneconnection",
-        "repo": "theone-releases",
+        "repo": "theonedesktop",
         "releaseType": "release"
       }
     ]
