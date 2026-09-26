@@ -20,6 +20,8 @@ if (allowed.includes(window.location.origin)) {
   contextBridge.exposeInMainWorld('theoneDesktop', {
     isDesktop: true,
     info: () => ipcRenderer.invoke('desktop:info'),
+    /** This Mac's signed isolation statement for a TheOne challenge. */
+    attest: (tenantId, challenge) => ipcRenderer.invoke('desktop:attest', { tenantId, challenge }),
     pickWorkspace: () => ipcRenderer.invoke('desktop:pickWorkspace'),
     forgetWorkspace: (folder) => ipcRenderer.invoke('desktop:forgetWorkspace', folder),
     /** Safe project metadata for the workspace picker; never returns file contents. */

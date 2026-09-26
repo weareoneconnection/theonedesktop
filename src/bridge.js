@@ -14,6 +14,7 @@ const { promisify } = require('node:util');
 const { dialog, ipcMain, Notification, shell, app } = require('electron');
 const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
+const { buildAttestation, loadOrCreateKey } = require('./attestation');
 
 const execFileAsync = promisify(execFile);
 
@@ -72,6 +73,9 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
 
   const handle = (channel, handler) => ipcMain.handle(channel, guard(handler));
 
+  let attestationKey = null;
+  const deviceKey = () => (attestationKey ||= loadOrCreateKey(app.getPath('userData')));
+
   const info = () => ({
     version: app.getVersion(),
     platform: process.platform,
@@ -82,7 +86,18 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     workspaces: settings.workspaces,
   });
 
-  handle('desktop:info', async () => info());
+  handle('desktop:info', async () => {
+    let attestation = null;
+    try { attestation = { keyId: deviceKey().keyId, publicKey: deviceKey().publicKey }; } catch { /* key store unavailable */ }
+    return { ...info(), attestation };
+  });
+
+  // TheOne's challenge in, this Mac's signed statement out. The statement
+  // says only what the main process knows; the page cannot shape it.
+  handle('desktop:attest', async (input) => buildAttestation(
+    { tenantId: input && input.tenantId, challenge: input && input.challenge },
+    { key: deviceKey(), version: app.getVersion(), platform: process.platform, arch: process.arch },
+  ));
 
   handle('desktop:pickWorkspace', async () => {
     const window = getWindow();
