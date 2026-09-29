@@ -17,6 +17,7 @@ const { createUpdater } = require('./updater');
 const { LocalRuntime } = require('./runtime');
 const { Settings } = require('./settings');
 const { registerBridge } = require('./bridge');
+const { windowChrome } = require('./platform');
 
 const START_URL = startUrl();
 const START_ORIGIN = new URL(START_URL).origin;
@@ -122,7 +123,7 @@ function openSettings(locale = app.getLocale()) {
     minimizable: false,
     fullscreenable: false,
     title: language === 'en' ? 'TheOne Settings' : 'TheOne 设置',
-    titleBarStyle: 'hiddenInset',
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : { autoHideMenuBar: true }),
     backgroundColor: '#0a0b0e',
     parent: mainWindow || undefined,
     webPreferences: { preload: path.join(__dirname, 'settings-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false },
@@ -173,12 +174,15 @@ function buildMenu() {
         { type: 'separator' },
         { label: '设置…', accelerator: 'CommandOrControl+,', click: openSettings },
         { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide', label: '隐藏 TheOne' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
+        // Services and hiding are macOS ideas; Windows has neither.
+        ...(process.platform === 'darwin' ? [
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide', label: '隐藏 TheOne' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+        ] : []),
         { role: 'quit', label: '退出 TheOne' },
       ],
     },
@@ -246,8 +250,8 @@ function createWindow() {
     minWidth: 860,
     minHeight: 560,
     title: 'TheOne',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 17 },
+    // The macOS frame hides behind the traffic lights; Windows keeps its own.
+    ...windowChrome(),
     backgroundColor: '#0a0b0e',
     show: false,
     webPreferences: {

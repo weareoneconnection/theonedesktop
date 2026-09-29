@@ -7,6 +7,7 @@
 
 const crypto = require('node:crypto');
 const path = require('node:path');
+const platform = require('./platform');
 
 const PRODUCTION_URL = 'https://www.the1os.io/os';
 const LEGACY_PRODUCTION_ORIGIN = 'https://theone-eta.vercel.app';
@@ -192,7 +193,7 @@ function buildLocalTaskInput(body, pickedWorkspaces, taskCopiesRoot) {
   const workspacePath = String(value.workspacePath || '').trim();
   if (objectiveTooShort(objective)) throw new Error('Describe the change in at least a sentence.');
   if (objective.length > 8000) throw new Error('The objective is too long (8,000 characters maximum).');
-  if (!workspacePath || !path.isAbsolute(workspacePath)) throw new Error('Choose a folder on this Mac.');
+  if (!workspacePath || !path.isAbsolute(workspacePath)) throw new Error('Choose a folder on this computer.');
   const picked = (pickedWorkspaces || []).some((folder) => isInside(folder, workspacePath));
   const taskCopy = Boolean(taskCopiesRoot)
     && isInside(taskCopiesRoot, workspacePath)
@@ -322,18 +323,10 @@ function compactTask(raw) {
  * install locations as a fallback.
  */
 function mergePath(...sources) {
-  const seen = new Set();
-  const out = [];
-  for (const source of sources) {
-    for (const entry of String(source || '').split(':')) {
-      const item = entry.trim();
-      if (item && !seen.has(item)) { seen.add(item); out.push(item); }
-    }
-  }
-  return out.join(':');
+  return platform.mergePath(process.platform, ...sources);
 }
 
-const FALLBACK_PATH = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+const FALLBACK_PATH = platform.fallbackPath();
 
 /** Updates run in the packaged app only, unless THEONE_DESKTOP_DISABLE_UPDATES=1. */
 function updatesEnabled({ isPackaged, env = process.env }) {
@@ -416,7 +409,7 @@ const LOCAL_AGENT_ACTIONS = new Set(['file.read', 'file.list', 'file.exists', 'f
 function localAgentCall(body, pickedWorkspaces) {
   const value = body && typeof body === 'object' ? body : {};
   const action = String(value.action || '').trim();
-  if (!LOCAL_AGENT_ACTIONS.has(action)) throw new Error(`This Mac does not run "${action.slice(0, 40)}" for the chat agent.`);
+  if (!LOCAL_AGENT_ACTIONS.has(action)) throw new Error(`This computer does not run "${action.slice(0, 40)}" for the chat agent.`);
   const input = value.input && typeof value.input === 'object' ? value.input : {};
   const target = String(input.path || '').trim();
   if (!target || !path.isAbsolute(target)) throw new Error('A local read needs an absolute path.');

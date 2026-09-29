@@ -19,6 +19,8 @@ const allowed = [
 if (allowed.includes(window.location.origin)) {
   contextBridge.exposeInMainWorld('theoneDesktop', {
     isDesktop: true,
+    /** darwin or win32: the web shell leaves room for the traffic lights only on a Mac. */
+    platform: process.platform,
     info: () => ipcRenderer.invoke('desktop:info'),
     /** This Mac's signed isolation statement for a TheOne challenge. */
     attest: (tenantId, challenge) => ipcRenderer.invoke('desktop:attest', { tenantId, challenge }),

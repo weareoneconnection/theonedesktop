@@ -6,6 +6,9 @@ import path from 'node:path';
 
 const source = path.resolve(process.env.ONECLAW_DIR || '../oneclaw-v5-phase4');
 const target = path.resolve('resources/oneclaw');
+// --os=win32 --cpu=x64 when packaging for another platform than this one:
+// npm then installs that platform's optional native packages, not this Mac's.
+const platformFlags = process.argv.slice(2).filter((arg) => /^--(os|cpu)=[a-z0-9]+$/.test(arg));
 
 execFileSync('npm', ['run', 'build'], { cwd: source, stdio: 'inherit' });
 fs.rmSync(target, { recursive: true, force: true });
@@ -58,5 +61,5 @@ if (process.env.ONECLAW_OBFUSCATE !== '0') {
 
 // Never ship an env file: the app builds the runtime's environment itself.
 for (const leftover of ['.env', '.env.local', '.env.example']) fs.rmSync(path.join(target, leftover), { force: true });
-execFileSync('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: target, stdio: 'inherit' });
-console.log(`runtime bundled into ${target}`);
+execFileSync('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', ...platformFlags], { cwd: target, stdio: 'inherit' });
+console.log(`runtime bundled into ${target}${platformFlags.length ? ` (${platformFlags.join(' ')})` : ''}`);

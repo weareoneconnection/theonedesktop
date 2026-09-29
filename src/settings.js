@@ -4,7 +4,7 @@
  * Settings on disk, in the app's data folder.
  *
  * The Anthropic and OpenAI keys are encrypted with Electron's safeStorage, which on macOS is
- * backed by a key in the login Keychain: the file alone does not reveal it.
+ * backed by a key in the login Keychain and on Windows by DPAPI: the file alone does not reveal it.
  */
 
 const fs = require('node:fs');
@@ -80,7 +80,7 @@ class Settings {
 
   encrypt(value) {
     if (!value) return '';
-    if (!this.safeStorage.isEncryptionAvailable()) throw new Error('Encryption is not available on this Mac; the key was not saved.');
+    if (!this.safeStorage.isEncryptionAvailable()) throw new Error('Encryption is not available on this computer; the key was not saved.');
     return this.safeStorage.encryptString(value).toString('base64');
   }
 
@@ -102,7 +102,7 @@ class Settings {
     if (!value) {
       this.data.apiKey = '';
     } else {
-      if (!this.safeStorage.isEncryptionAvailable()) throw new Error('Encryption is not available on this Mac; the key was not saved.');
+      if (!this.safeStorage.isEncryptionAvailable()) throw new Error('Encryption is not available on this computer; the key was not saved.');
       this.data.apiKey = this.safeStorage.encryptString(value).toString('base64');
     }
     this.save();

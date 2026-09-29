@@ -26,6 +26,8 @@ const CODEX_VERSION = '0.158.0';
 const PACKAGES = {
   'darwin-arm64': { suffix: 'darwin-arm64', target: 'aarch64-apple-darwin', integrity: 'sha512-0OKSjlWY1j4Ld1fT87QttNw3Y2SthcXi4GcrWSHjleZg1n86eG3+shJl4Pv+siUmsBJhWlNmm6rRO4Yv8ZyQLg==' },
   'darwin-x64': { suffix: 'darwin-x64', target: 'x86_64-apple-darwin', integrity: 'sha512-FrX1o3APrL7F6QkO8z08Rq8lJitH2sNI7pkebA02eYA103hDs3fyy9d32zeLLQJUeAhmZA4pV9xJR4m7cVyNpQ==' },
+  'win32-x64': { suffix: 'win32-x64', target: 'x86_64-pc-windows-msvc', binary: 'codex.exe', integrity: 'sha512-IaUmY11Zdqa/Zok6kE0Z5375pXtClKRbS8P1Gh2C73Aq65CaGn9N8gT6BXGC3+XD6yamAIiEQW5xM842UCCGow==' },
+  'win32-arm64': { suffix: 'win32-arm64', target: 'aarch64-pc-windows-msvc', binary: 'codex.exe', integrity: 'sha512-Jw1u0q0+5PG97jPkINxE3UCFtsYBN8Af+IjjM0zlCO675Sv5lNsXU2K9aIaXwVeQIKw8q2lbPAR4SEkq2rSOoA==' },
 };
 
 const REGISTRIES = ['https://registry.npmjs.org', 'https://registry.npmmirror.com'];
@@ -43,10 +45,11 @@ function installedCodexPath(dataDir, platform = process.platform, arch = process
   const pkg = codexPackage(platform, arch, packages);
   if (!pkg || !dataDir) return null;
   const dir = codexInstallDir(dataDir);
-  const binary = path.join(dir, 'vendor', pkg.target, 'bin', 'codex');
+  const binary = path.join(dir, 'vendor', pkg.target, 'bin', pkg.binary || 'codex');
   try {
     const marker = JSON.parse(fs.readFileSync(path.join(dir, '.theone-installed.json'), 'utf8'));
-    fs.accessSync(binary, fs.constants.X_OK);
+    // Windows has no execute bit: the file being there is the test.
+    fs.accessSync(binary, platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK);
     return marker.version === CODEX_VERSION ? binary : null;
   } catch {
     return null;
@@ -84,10 +87,15 @@ async function download(url, file, { fetchFn, onProgress, signal }) {
   return `sha512-${hash.digest('base64')}`;
 }
 
-function extract(archive, into, { spawnFn }) {
+/** bsdtar: /usr/bin/tar on macOS, System32\\tar.exe on Windows 10 and later. */
+function tarCommand(platform = process.platform, env = process.env) {
+  return platform === 'win32' ? path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : '/usr/bin/tar';
+}
+
+function extract(archive, into, { spawnFn, platform }) {
   return new Promise((resolve, reject) => {
-    // bsdtar on macOS; the voice resources are left in the archive.
-    const child = spawnFn('/usr/bin/tar', ['-xzf', archive, '-C', into, '--exclude', 'package/vendor/*/codex-resources/voice'], { stdio: 'ignore' });
+    // The voice resources are left in the archive.
+    const child = spawnFn(tarCommand(platform), ['-xzf', archive, '-C', into, '--exclude', 'package/vendor/*/codex-resources/voice'], { stdio: 'ignore' });
     child.on('error', reject);
     child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`tar exited ${code}`))));
   });
@@ -128,7 +136,7 @@ async function installCodex({ dataDir, env = process.env, fetchFn = fetch, spawn
 
     onProgress({ phase: 'extract' });
     fs.mkdirSync(staging, { recursive: true });
-    await extract(archive, staging, { spawnFn });
+    await extract(archive, staging, { spawnFn, platform });
     const unpacked = path.join(staging, 'package');
     fs.writeFileSync(path.join(unpacked, '.theone-installed.json'), JSON.stringify({ version: CODEX_VERSION, integrity: pkg.integrity, installedAt: new Date().toISOString() }));
     const dir = codexInstallDir(dataDir);
@@ -144,4 +152,4 @@ async function installCodex({ dataDir, env = process.env, fetchFn = fetch, spawn
   }
 }
 
-module.exports = { CODEX_VERSION, PACKAGES, codexInstallDir, codexPackage, installCodex, installedCodexPath, registries, tarballUrl };
+module.exports = { CODEX_VERSION, PACKAGES, codexInstallDir, codexPackage, installCodex, installedCodexPath, registries, tarballUrl, tarCommand };

@@ -2,7 +2,7 @@
   "name": "theone-desktop",
   "productName": "TheOne",
   "version": "0.3.8",
-  "description": "TheOne for macOS: the OS surface plus a local agent runtime that works on folders on this Mac.",
+  "description": "TheOne for macOS and Windows: the OS surface plus a local agent runtime that works on folders on this computer.",
   "private": true,
   "main": "src/main.js",
   "author": "WAOC",
@@ -13,7 +13,10 @@
     "test": "node --test test/*.test.js",
     "e2e": "node test-e2e/run.mjs",
     "dist:mac": "npm run bundle:runtime && electron-builder --mac --arm64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false",
-    "release:mac": "npm run bundle:runtime && electron-builder --mac --arm64 --publish always"
+    "release:mac": "npm run bundle:runtime && electron-builder --mac --arm64 --publish always",
+    "bundle:runtime:win": "node scripts/bundle-runtime.mjs --os=win32 --cpu=x64",
+    "dist:win": "npm run bundle:runtime:win && electron-builder --win --x64 --publish never",
+    "release:win": "npm run bundle:runtime:win && electron-builder --win --x64 --publish always"
   },
   "build": {
     "appId": "org.weareoneconnection.theone",
@@ -49,6 +52,27 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "notarize": true
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "TheOne-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TheOne",
+      "deleteAppDataOnUninstall": false
     },
     "protocols": [
       {

@@ -8,7 +8,7 @@
   :root { --bg: #fbfbfc; --surface: #fff; --text: #18181b; --muted: #52525b; --faint: #8e8e98; --border: rgba(15,23,42,.1); --accent: #0d9488; --danger: #dc2626; --ok: #16a34a; color-scheme: light dark; }
   @media (prefers-color-scheme: dark) { :root { --bg: #0a0b0e; --surface: #121419; --text: #ededf0; --muted: #a1a1aa; --faint: #6b6b76; --border: rgba(255,255,255,.1); --accent: #5eead4; --danger: #f87171; --ok: #4ade80; } }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 13px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; font: 13px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
   header { height: 44px; -webkit-app-region: drag; }
   main { padding: 4px 28px 28px; }
   h1 { font-size: 18px; margin: 0 0 18px; letter-spacing: -.01em; }
@@ -64,7 +64,7 @@
   </section>
   <section>
     <h2 data-i18n="runtime">本机运行时</h2>
-    <p data-i18n="runtimeHelp">在这台 Mac 上执行任务的 Agent 引擎，只接受本机连接。</p>
+    <p data-i18n="runtimeHelp">在这台电脑上执行任务的 Agent 引擎，只接受本机连接。</p>
     <div class="status" id="runtime"></div>
     <div class="row" style="margin-top:10px">
       <button id="restart" class="ghost" data-i18n="restart">重启运行时</button>
@@ -72,7 +72,7 @@
   </section>
   <section>
     <h2 data-i18n="engines">执行引擎</h2>
-    <p data-i18n="enginesHelp">任务可以由 TheOne 自己的引擎执行，也可以交给这台 Mac 上的 Claude CLI 或 Codex CLI —— 无论用哪个，工作区快照、改动对比、验证门和审批都还是 TheOne 的。</p>
+    <p data-i18n="enginesHelp">任务可以由 TheOne 自己的引擎执行，也可以交给这台电脑上的 Claude CLI 或 Codex CLI —— 无论用哪个，工作区快照、改动对比、验证门和审批都还是 TheOne 的。</p>
     <ul id="engines"></ul>
   </section>
   <section>
@@ -91,17 +91,17 @@
       openaiKey: 'OpenAI API 密钥', openaiHelp: '让 TheOne 引擎使用 GPT 模型（GPT-6 Astra、GPT-5.6）时需要。同样加密保存在本机。',
       save: '保存', clear: '清除', saved: '已保存密钥', noKey: '还没有密钥', noOpenAIKey: '还没有密钥（只在用 GPT 模型时需要）', cleared: '已清除',
       codexUseKey: 'Codex 也用这个 API 密钥', codexUseKeyHelp: '按 token 计费，不占 ChatGPT 套餐额度。关掉就回到你自己的 <code>codex login</code>（ChatGPT 账号），那份登录不会被改动。',
-      runtime: '本机运行时', runtimeHelp: '在这台 Mac 上执行任务的 Agent 引擎，只接受本机连接。', restart: '重启运行时', running: '运行中', error: '出错', restarting: '正在重启…', savingRestarting: '正在保存并重启运行时…', switchingRestarting: '正在切换并重启运行时…',
-      engines: '执行引擎', enginesHelp: '任务可以由 TheOne 自己的引擎执行，也可以交给这台 Mac 上的 Claude CLI 或 Codex CLI —— 无论用哪个，工作区快照、改动对比、验证门和审批都还是 TheOne 的。', engineUnavailable: '暂时读不到引擎状态', codexLogin: '登录 Codex…', installHelp: '安装说明', codexInstall: '安装 Codex（约 130 MB）', codexDownloading: '正在下载 Codex', codexVerifying: '正在校验…', codexExtracting: '正在解压…', codexInstalled: 'Codex 已安装，正在重启运行时…',
+      runtime: '本机运行时', runtimeHelp: '在这台电脑上执行任务的 Agent 引擎，只接受本机连接。', restart: '重启运行时', running: '运行中', error: '出错', restarting: '正在重启…', savingRestarting: '正在保存并重启运行时…', switchingRestarting: '正在切换并重启运行时…',
+      engines: '执行引擎', enginesHelp: '任务可以由 TheOne 自己的引擎执行，也可以交给这台电脑上的 Claude CLI 或 Codex CLI —— 无论用哪个，工作区快照、改动对比、验证门和审批都还是 TheOne 的。', engineUnavailable: '暂时读不到引擎状态', codexLogin: '登录 Codex…', installHelp: '安装说明', codexInstall: '安装 Codex（约 130–160 MB）', codexDownloading: '正在下载 Codex', codexVerifying: '正在校验…', codexExtracting: '正在解压…', codexInstalled: 'Codex 已安装，正在重启运行时…',
       folders: '已打开的文件夹', foldersHelp: 'Agent 只能在这里列出的文件夹中接任务。在 TheOne 里用“打开文件夹…”（⌘O）添加。', noFolders: '还没有打开文件夹', remove: '移除', codexNowApi: 'Codex 现在用 OpenAI API 密钥', codexOwnLogin: 'Codex 用你自己的 ChatGPT 登录'
     },
     en: {
-      settings: 'Settings', anthropicKey: 'Anthropic API key', anthropicHelp: 'Required for local coding tasks. The key is encrypted in macOS Keychain, stored on this Mac, and never uploaded.',
+      settings: 'Settings', anthropicKey: 'Anthropic API key', anthropicHelp: 'Required for local coding tasks. The key is encrypted in macOS Keychain, stored on this computer, and never uploaded.',
       openaiKey: 'OpenAI API key', openaiHelp: 'Required when TheOne uses GPT models (GPT-6 Astra and GPT-5.6). It is also encrypted and stored locally.',
       save: 'Save', clear: 'Clear', saved: 'Key saved', noKey: 'No key saved', noOpenAIKey: 'No key saved (only required for GPT models)', cleared: 'Cleared',
       codexUseKey: 'Use this API key for Codex too', codexUseKeyHelp: 'Billed per token and does not use your ChatGPT plan allowance. Turn this off to use your own <code>codex login</code> (ChatGPT account); that login is not changed.',
-      runtime: 'Local runtime', runtimeHelp: 'The Agent runtime that executes tasks on this Mac. It only accepts local connections.', restart: 'Restart runtime', running: 'Running', error: 'Error', restarting: 'Restarting…', savingRestarting: 'Saving and restarting runtime…', switchingRestarting: 'Switching and restarting runtime…',
-      engines: 'Execution engines', enginesHelp: 'Tasks can run with TheOne’s built-in engine or the Claude CLI or Codex CLI on this Mac. Workspace snapshots, diffs, verification gates, and approvals remain governed by TheOne.', engineUnavailable: 'Engine status is temporarily unavailable', codexLogin: 'Sign in to Codex…', installHelp: 'Installation guide', codexInstall: 'Install Codex (about 130 MB)', codexDownloading: 'Downloading Codex', codexVerifying: 'Verifying…', codexExtracting: 'Unpacking…', codexInstalled: 'Codex installed; restarting the runtime…',
+      runtime: 'Local runtime', runtimeHelp: 'The Agent runtime that executes tasks on this computer. It only accepts local connections.', restart: 'Restart runtime', running: 'Running', error: 'Error', restarting: 'Restarting…', savingRestarting: 'Saving and restarting runtime…', switchingRestarting: 'Switching and restarting runtime…',
+      engines: 'Execution engines', enginesHelp: 'Tasks can run with TheOne’s built-in engine or the Claude CLI or Codex CLI on this computer. Workspace snapshots, diffs, verification gates, and approvals remain governed by TheOne.', engineUnavailable: 'Engine status is temporarily unavailable', codexLogin: 'Sign in to Codex…', installHelp: 'Installation guide', codexInstall: 'Install Codex (about 130–160 MB)', codexDownloading: 'Downloading Codex', codexVerifying: 'Verifying…', codexExtracting: 'Unpacking…', codexInstalled: 'Codex installed; restarting the runtime…',
       folders: 'Opened folders', foldersHelp: 'The Agent can only accept tasks in these folders. Use “Open Folder…” (⌘O) in TheOne to add one.', noFolders: 'No folders opened yet', remove: 'Remove', codexNowApi: 'Codex now uses the OpenAI API key', codexOwnLogin: 'Codex uses your own ChatGPT login'
     }
   };
@@ -151,7 +151,7 @@
       text.textContent = `${engine.label || engine.engine} — ${engine.detail || ''}`;
       text.title = text.textContent;
       li.append(mark, text);
-      // Codex that is not on this Mac yet: TheOne installs a pinned copy (codex-install.js).
+      // Codex that is not on this computer yet: TheOne installs a pinned copy (codex-install.js).
       if (engine.engine === 'codex' && !engine.binary) {
         const button = document.createElement('button');
         button.className = 'ghost';

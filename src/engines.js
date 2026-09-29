@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * The coding engines on this Mac.
+ * The coding engines on this computer.
  *
  * The runtime is the one that answers what it can actually run — it is the
  * process that will spawn the CLI, with its PATH and its HOME. The app adds
@@ -15,6 +15,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { engineName } = require('./policy');
 const { installedCodexPath } = require('./codex-install');
+const { delimiter, executableNames } = require('./platform');
 
 const DOCS = {
   codex: 'https://developers.openai.com/codex/cli',
@@ -34,11 +35,16 @@ const CODEX_CANDIDATES = [
   path.join(os.homedir(), 'Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex'),
   '/Applications/ChatGPT.app/Contents/Resources/codex',
   path.join(os.homedir(), 'Applications/ChatGPT.app/Contents/Resources/codex'),
+  // Windows: the exe inside an `npm install -g @openai/codex`. Not npm's
+  // codex.cmd shim: the runtime spawns Codex without a shell, and a .cmd
+  // cannot run that way.
+  ...(process.env.APPDATA ? [path.join(process.env.APPDATA, 'npm', 'node_modules', '@openai', 'codex', 'node_modules', '@openai', `codex-win32-${process.arch}`, 'vendor', process.arch === 'arm64' ? 'aarch64-pc-windows-msvc' : 'x86_64-pc-windows-msvc', 'bin', 'codex.exe')] : []),
 ];
 
 function executable(file) {
   try {
-    fs.accessSync(file, fs.constants.X_OK);
+    // Windows has no execute bit: the file being there is the test.
+    fs.accessSync(file, process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK);
     return true;
   } catch {
     return false;
@@ -52,10 +58,14 @@ function executable(file) {
 function findCodexBinary(env = process.env, candidates = CODEX_CANDIDATES, installed = null) {
   if (env.ONECLAW_CODEX_BIN && executable(env.ONECLAW_CODEX_BIN)) return env.ONECLAW_CODEX_BIN;
   if (installed && executable(installed)) return installed;
-  for (const entry of String(env.PATH || '').split(':')) {
+  for (const entry of String(env.PATH || env.Path || '').split(delimiter())) {
     if (!entry) continue;
-    const candidate = path.join(entry, 'codex');
-    if (executable(candidate)) return candidate;
+    // Windows: only codex.exe (see CODEX_CANDIDATES on .cmd shims).
+    const names = executableNames('codex', process.platform, env).filter((name) => process.platform !== 'win32' || name.endsWith('.exe'));
+    for (const name of names) {
+      const candidate = path.join(entry, name);
+      if (executable(candidate)) return candidate;
+    }
   }
   return candidates.find(executable) || null;
 }
@@ -93,9 +103,26 @@ async function listEngines(runtime) {
 function startCodexLogin({ dataDir, env = process.env, spawnFn = spawn, candidates = CODEX_CANDIDATES }) {
   const binary = findCodexBinary(env, candidates, installedCodexPath(dataDir));
   if (!binary) {
-    const error = new Error('这台 Mac 上还没有 Codex。先点“安装 Codex”，装好后再登录。');
+    const error = new Error('这台电脑上还没有 Codex。先点“安装 Codex”，装好后再登录。');
     error.code = 'codex_missing';
     throw error;
+  }
+  if (process.platform === 'win32') {
+    // Windows: a .cmd in its own console window, readable before it runs.
+    const script = path.join(dataDir, 'codex-login.cmd');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(script, [
+      '@echo off',
+      'rem TheOne: sign in to Codex. A browser opens the ChatGPT sign-in; come back here when done.',
+      `echo Running: "${binary}" login`,
+      `"${binary}" login`,
+      'echo.',
+      'echo Done. Close this window and click "Check again" in TheOne.',
+      'pause',
+      '',
+    ].join('\r\n'));
+    spawnFn('cmd.exe', ['/c', 'start', '""', script], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
+    return { ok: true, binary, script };
   }
   const script = path.join(dataDir, 'codex-login.command');
   fs.mkdirSync(dataDir, { recursive: true });

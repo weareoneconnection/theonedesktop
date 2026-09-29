@@ -21,6 +21,7 @@ const path = require('node:path');
 const { FALLBACK_PATH, codexEnv, mergePath } = require('./policy');
 const { findCodexBinary } = require('./engines');
 const { installedCodexPath } = require('./codex-install');
+const { gitBash, systemEnv, workspaceRoots } = require('./platform');
 
 /** ONECLAW_CODEX_BIN for the runtime: an explicit one stays; else the one found here. */
 function codexBinaryEnv(dataDir, env = process.env) {
@@ -43,6 +44,8 @@ function freePort() {
 
 /** The login shell's PATH, or '' if it cannot be read quickly. */
 function loginShellPath() {
+  // Windows has no login shell to ask: the process PATH is already the user's.
+  if (process.platform === 'win32') return Promise.resolve('');
   return new Promise((resolve) => {
     const shell = process.env.SHELL || '/bin/zsh';
     execFile(shell, ['-ilc', 'printf "__PATH__%s__PATH__" "$PATH"'], { timeout: 4000, env: { HOME: os.homedir() } }, (error, stdout) => {
@@ -107,7 +110,10 @@ class LocalRuntime {
       // runtime's list is the whole disk because folders may live outside the
       // home folder (external drives, /Volumes), and restarting the runtime on
       // every newly opened folder would drop running tasks.
-      ONECLAW_CODE_WORKSPACE_ALLOWLIST: '/',
+      ONECLAW_CODE_WORKSPACE_ALLOWLIST: workspaceRoots(),
+      // Windows: the variables child processes need, and Git Bash for the agent's commands.
+      ...systemEnv(),
+      ...(process.platform === 'win32' && gitBash() ? { ONECLAW_SHELL: gitBash() } : {}),
       ONECLAW_TASK_WORKSPACE_ROOT: path.join(this.dataDir, 'tasks'),
       ONECLAW_AGENT_STATE_DIR: path.join(this.dataDir, 'agent-sessions'),
       // Task history survives restarts. A task that was running when the app

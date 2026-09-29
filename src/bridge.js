@@ -18,6 +18,7 @@ const { buildAttestation, loadOrCreateKey } = require('./attestation');
 const { installCodex } = require('./codex-install');
 
 const execFileAsync = promisify(execFile);
+const SETTINGS_SHORTCUT = process.platform === 'darwin' ? '⌘,' : 'Ctrl+,';
 
 async function exists(file) {
   try { await access(file); return true; } catch { return false; }
@@ -145,10 +146,10 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     // key; the rest call Anthropic and need that key.
     const onOpenAI = engineName(body && body.engine) === 'theone' && isOpenAIModel(body && body.model);
     if (onOpenAI && !settings.hasOpenAIKey) {
-      throw new Error('Add your OpenAI API key in TheOne → Settings (⌘,) to run OpenAI models on this Mac.');
+      throw new Error(`Add your OpenAI API key in TheOne → Settings (${SETTINGS_SHORTCUT}) to run OpenAI models on this computer.`);
     }
     if (!onOpenAI && !settings.hasApiKey && engineName(body && body.engine) !== 'codex') {
-      throw new Error('Add your Anthropic API key in TheOne → Settings (⌘,) to run tasks on this Mac.');
+      throw new Error(`Add your Anthropic API key in TheOne → Settings (${SETTINGS_SHORTCUT}) to run tasks on this computer.`);
     }
     // A thread's next turn may continue in a copy the runtime kept.
     const input = buildLocalTaskInput(body, settings.workspaces, path.join(runtime.dataDir, 'tasks'));
