@@ -188,6 +188,9 @@ test('codex login runs the binary this Mac actually has, in a file you can read 
   assert.equal(engines.findCodexBinary({ ONECLAW_CODEX_BIN: override, PATH: binDir }), override);
   // On a Mac that has Codex only inside ChatGPT.app, that copy is found.
   assert.equal(engines.findCodexBinary({ PATH: '/nonexistent' }, [binary]), binary);
+  // ChatGPT.app moved its bundled CLI to Resources/codex-cli/bin; the old place is still looked for too.
+  assert.ok(engines.CODEX_CANDIDATES.includes('/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex'));
+  assert.ok(engines.CODEX_CANDIDATES.includes('/Applications/ChatGPT.app/Contents/Resources/codex'));
 
   assert.throws(
     () => engines.startCodexLogin({ dataDir, env: { PATH: '/nonexistent' }, spawnFn, candidates: [] }),

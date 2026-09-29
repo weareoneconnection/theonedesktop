@@ -27,6 +27,10 @@ const CODEX_CANDIDATES = [
   path.join(os.homedir(), '.codex/bin/codex'),
   '/opt/homebrew/bin/codex',
   '/usr/local/bin/codex',
+  // Current ChatGPT builds keep the CLI in Resources/codex-cli/bin; older
+  // ones put it straight in Resources. Both are looked for.
+  '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex',
+  path.join(os.homedir(), 'Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex'),
   '/Applications/ChatGPT.app/Contents/Resources/codex',
   path.join(os.homedir(), 'Applications/ChatGPT.app/Contents/Resources/codex'),
 ];
