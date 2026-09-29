@@ -120,7 +120,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     return inspectWorkspace(target);
   });
 
-  handle('desktop:openSettings', async () => { openSettings(); return true; });
+  handle('desktop:openSettings', async (locale) => { openSettings(locale); return true; });
 
   // Which engines this Mac can run, straight from the runtime that would run
   // them, so the page offers only choices that will work.

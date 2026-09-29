@@ -104,8 +104,14 @@ function navigateTo(pathname) {
   mainWindow.focus();
 }
 
-function openSettings() {
+function normalizeLocale(value) {
+  return String(value || '').toLowerCase().startsWith('en') ? 'en' : 'zh-CN';
+}
+
+function openSettings(locale = app.getLocale()) {
+  const language = normalizeLocale(locale);
   if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.loadFile(path.join(__dirname, 'settings.html'), { query: { lang: language } });
     settingsWindow.focus();
     return;
   }
@@ -115,13 +121,13 @@ function openSettings() {
     resizable: false,
     minimizable: false,
     fullscreenable: false,
-    title: 'TheOne 设置',
+    title: language === 'en' ? 'TheOne Settings' : 'TheOne 设置',
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#0a0b0e',
     parent: mainWindow || undefined,
     webPreferences: { preload: path.join(__dirname, 'settings-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
-  settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
+  settingsWindow.loadFile(path.join(__dirname, 'settings.html'), { query: { lang: language } });
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 

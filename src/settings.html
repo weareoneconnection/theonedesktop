@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
-<title>TheOne 设置</title>
+<title>TheOne Settings</title>
 <style>
   :root { --bg: #fbfbfc; --surface: #fff; --text: #18181b; --muted: #52525b; --faint: #8e8e98; --border: rgba(15,23,42,.1); --accent: #0d9488; --danger: #dc2626; --ok: #16a34a; color-scheme: light dark; }
   @media (prefers-color-scheme: dark) { :root { --bg: #0a0b0e; --surface: #121419; --text: #ededf0; --muted: #a1a1aa; --faint: #6b6b76; --border: rgba(255,255,255,.1); --accent: #5eead4; --danger: #f87171; --ok: #4ade80; } }
@@ -36,85 +36,111 @@
 <body>
 <header></header>
 <main>
-  <h1>设置</h1>
+  <h1 data-i18n="settings">设置</h1>
   <section>
-    <h2>Anthropic API 密钥</h2>
-    <p>本机运行编程任务需要。密钥用 macOS 钥匙串加密后保存在这台电脑上，不会上传。</p>
+    <h2 data-i18n="anthropicKey">Anthropic API 密钥</h2>
+    <p data-i18n="anthropicHelp">本机运行编程任务需要。密钥用 macOS 钥匙串加密后保存在这台电脑上，不会上传。</p>
     <div class="row">
       <input id="key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
-      <button id="save">保存</button>
-      <button id="clear" class="ghost">清除</button>
+      <button id="save" data-i18n="save">保存</button>
+      <button id="clear" class="ghost" data-i18n="clear">清除</button>
     </div>
     <div class="status" id="keyStatus"></div>
   </section>
   <section>
-    <h2>OpenAI API 密钥</h2>
-    <p>让 TheOne 引擎使用 GPT 模型（GPT-6 Astra、GPT-5.6）时需要。同样加密保存在本机。</p>
+    <h2 data-i18n="openaiKey">OpenAI API 密钥</h2>
+    <p data-i18n="openaiHelp">让 TheOne 引擎使用 GPT 模型（GPT-6 Astra、GPT-5.6）时需要。同样加密保存在本机。</p>
     <div class="row">
       <input id="openaiKey" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false">
-      <button id="openaiSave">保存</button>
-      <button id="openaiClear" class="ghost">清除</button>
+      <button id="openaiSave" data-i18n="save">保存</button>
+      <button id="openaiClear" class="ghost" data-i18n="clear">清除</button>
     </div>
     <div class="status" id="openaiStatus"></div>
     <label class="check">
       <input id="codexKey" type="checkbox">
-      <span>Codex 也用这个 API 密钥<small>按 token 计费，不占 ChatGPT 套餐额度。关掉就回到你自己的 <code>codex login</code>（ChatGPT 账号），那份登录不会被改动。</small></span>
+      <span><span data-i18n="codexUseKey">Codex 也用这个 API 密钥</span><small data-i18n-html="codexUseKeyHelp">按 token 计费，不占 ChatGPT 套餐额度。关掉就回到你自己的 <code>codex login</code>（ChatGPT 账号），那份登录不会被改动。</small></span>
     </label>
     <div class="status" id="codexKeyStatus"></div>
   </section>
   <section>
-    <h2>本机运行时</h2>
-    <p>在这台 Mac 上执行任务的 Agent 引擎，只接受本机连接。</p>
+    <h2 data-i18n="runtime">本机运行时</h2>
+    <p data-i18n="runtimeHelp">在这台 Mac 上执行任务的 Agent 引擎，只接受本机连接。</p>
     <div class="status" id="runtime"></div>
     <div class="row" style="margin-top:10px">
-      <button id="restart" class="ghost">重启运行时</button>
+      <button id="restart" class="ghost" data-i18n="restart">重启运行时</button>
     </div>
   </section>
   <section>
-    <h2>执行引擎</h2>
-    <p>任务可以由 TheOne 自己的引擎执行，也可以交给这台 Mac 上的 Claude CLI 或 Codex CLI —— 无论用哪个，工作区快照、改动对比、验证门和审批都还是 TheOne 的。</p>
+    <h2 data-i18n="engines">执行引擎</h2>
+    <p data-i18n="enginesHelp">任务可以由 TheOne 自己的引擎执行，也可以交给这台 Mac 上的 Claude CLI 或 Codex CLI —— 无论用哪个，工作区快照、改动对比、验证门和审批都还是 TheOne 的。</p>
     <ul id="engines"></ul>
   </section>
   <section>
-    <h2>已打开的文件夹</h2>
-    <p>Agent 只能在这里列出的文件夹中接任务。在 TheOne 里用“打开文件夹…”（⌘O）添加。</p>
+    <h2 data-i18n="folders">已打开的文件夹</h2>
+    <p data-i18n="foldersHelp">Agent 只能在这里列出的文件夹中接任务。在 TheOne 里用“打开文件夹…”（⌘O）添加。</p>
     <ul id="folders"></ul>
   </section>
   <footer id="version"></footer>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
-  const runtimeText = (r) => r.status === 'ready' ? '<span class="ok">● 运行中</span>' : r.status === 'error' ? `<span class="bad">● 出错：${r.error}</span>` : `● ${r.status}`;
+  const locale = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'zh-CN';
+  const messages = {
+    'zh-CN': {
+      settings: '设置', anthropicKey: 'Anthropic API 密钥', anthropicHelp: '本机运行编程任务需要。密钥用 macOS 钥匙串加密后保存在这台电脑上，不会上传。',
+      openaiKey: 'OpenAI API 密钥', openaiHelp: '让 TheOne 引擎使用 GPT 模型（GPT-6 Astra、GPT-5.6）时需要。同样加密保存在本机。',
+      save: '保存', clear: '清除', saved: '已保存密钥', noKey: '还没有密钥', noOpenAIKey: '还没有密钥（只在用 GPT 模型时需要）', cleared: '已清除',
+      codexUseKey: 'Codex 也用这个 API 密钥', codexUseKeyHelp: '按 token 计费，不占 ChatGPT 套餐额度。关掉就回到你自己的 <code>codex login</code>（ChatGPT 账号），那份登录不会被改动。',
+      runtime: '本机运行时', runtimeHelp: '在这台 Mac 上执行任务的 Agent 引擎，只接受本机连接。', restart: '重启运行时', running: '运行中', error: '出错', restarting: '正在重启…', savingRestarting: '正在保存并重启运行时…', switchingRestarting: '正在切换并重启运行时…',
+      engines: '执行引擎', enginesHelp: '任务可以由 TheOne 自己的引擎执行，也可以交给这台 Mac 上的 Claude CLI 或 Codex CLI —— 无论用哪个，工作区快照、改动对比、验证门和审批都还是 TheOne 的。', engineUnavailable: '暂时读不到引擎状态', codexLogin: '登录 Codex…', installHelp: '安装说明',
+      folders: '已打开的文件夹', foldersHelp: 'Agent 只能在这里列出的文件夹中接任务。在 TheOne 里用“打开文件夹…”（⌘O）添加。', noFolders: '还没有打开文件夹', remove: '移除', codexNowApi: 'Codex 现在用 OpenAI API 密钥', codexOwnLogin: 'Codex 用你自己的 ChatGPT 登录'
+    },
+    en: {
+      settings: 'Settings', anthropicKey: 'Anthropic API key', anthropicHelp: 'Required for local coding tasks. The key is encrypted in macOS Keychain, stored on this Mac, and never uploaded.',
+      openaiKey: 'OpenAI API key', openaiHelp: 'Required when TheOne uses GPT models (GPT-6 Astra and GPT-5.6). It is also encrypted and stored locally.',
+      save: 'Save', clear: 'Clear', saved: 'Key saved', noKey: 'No key saved', noOpenAIKey: 'No key saved (only required for GPT models)', cleared: 'Cleared',
+      codexUseKey: 'Use this API key for Codex too', codexUseKeyHelp: 'Billed per token and does not use your ChatGPT plan allowance. Turn this off to use your own <code>codex login</code> (ChatGPT account); that login is not changed.',
+      runtime: 'Local runtime', runtimeHelp: 'The Agent runtime that executes tasks on this Mac. It only accepts local connections.', restart: 'Restart runtime', running: 'Running', error: 'Error', restarting: 'Restarting…', savingRestarting: 'Saving and restarting runtime…', switchingRestarting: 'Switching and restarting runtime…',
+      engines: 'Execution engines', enginesHelp: 'Tasks can run with TheOne’s built-in engine or the Claude CLI or Codex CLI on this Mac. Workspace snapshots, diffs, verification gates, and approvals remain governed by TheOne.', engineUnavailable: 'Engine status is temporarily unavailable', codexLogin: 'Sign in to Codex…', installHelp: 'Installation guide',
+      folders: 'Opened folders', foldersHelp: 'The Agent can only accept tasks in these folders. Use “Open Folder…” (⌘O) in TheOne to add one.', noFolders: 'No folders opened yet', remove: 'Remove', codexNowApi: 'Codex now uses the OpenAI API key', codexOwnLogin: 'Codex uses your own ChatGPT login'
+    }
+  };
+  const t = (key) => messages[locale][key] || messages['zh-CN'][key] || key;
+  document.documentElement.lang = locale;
+  document.title = locale === 'en' ? 'TheOne Settings' : 'TheOne 设置';
+  document.querySelectorAll('[data-i18n]').forEach((node) => { node.textContent = t(node.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-html]').forEach((node) => { node.innerHTML = t(node.dataset.i18nHtml); });
+  const runtimeText = (r) => r.status === 'ready' ? `<span class="ok">● ${t('running')}</span>` : r.status === 'error' ? `<span class="bad">● ${t('error')}：${r.error}</span>` : `● ${r.status}`;
   async function render() {
     const s = await window.settingsApi.get();
-    $('keyStatus').innerHTML = s.hasApiKey ? '<span class="ok">已保存密钥</span>' : '还没有密钥';
+    $('keyStatus').innerHTML = s.hasApiKey ? `<span class="ok">${t('saved')}</span>` : t('noKey');
     if (!$('codexKey').dataset.busy) {
       $('codexKey').checked = Boolean(s.codexUsesApiKey);
       $('codexKey').disabled = !s.hasOpenAIKey;
     }
-    if (!$('openaiStatus').dataset.busy) $('openaiStatus').innerHTML = s.hasOpenAIKey ? '<span class="ok">已保存密钥</span>' : '还没有密钥（只在用 GPT 模型时需要）';
+    if (!$('openaiStatus').dataset.busy) $('openaiStatus').innerHTML = s.hasOpenAIKey ? `<span class="ok">${t('saved')}</span>` : t('noOpenAIKey');
     $('runtime').innerHTML = runtimeText(s.runtime);
     $('version').textContent = `TheOne ${s.version}`;
     await renderEngines();
     const list = $('folders');
     list.textContent = '';
-    if (!s.workspaces.length) { const li = document.createElement('li'); li.textContent = '还没有打开文件夹'; list.appendChild(li); }
+    if (!s.workspaces.length) { const li = document.createElement('li'); li.textContent = t('noFolders'); list.appendChild(li); }
     for (const folder of s.workspaces) {
       const li = document.createElement('li');
       const span = document.createElement('span'); span.textContent = folder; span.title = folder;
-      const btn = document.createElement('button'); btn.className = 'ghost'; btn.textContent = '移除';
+      const btn = document.createElement('button'); btn.className = 'ghost'; btn.textContent = t('remove');
       btn.onclick = async () => { await window.settingsApi.forgetWorkspace(folder); render(); };
       li.append(span, btn); list.appendChild(li);
     }
   }
   // The runtime answers what it can run; the app offers the one thing that
   // would fix an engine that is not ready.
-  const SETUP_LABEL = { codex: '登录 Codex…', claude: '安装说明', theone: '' };
+  const SETUP_LABEL = { codex: t('codexLogin'), claude: t('installHelp'), theone: '' };
   async function renderEngines() {
     const list = $('engines');
     const engines = await window.settingsApi.engines().catch(() => []);
     list.textContent = '';
-    if (!engines.length) { const li = document.createElement('li'); li.textContent = '暂时读不到引擎状态'; list.appendChild(li); return; }
+    if (!engines.length) { const li = document.createElement('li'); li.textContent = t('engineUnavailable'); list.appendChild(li); return; }
     for (const engine of engines) {
       const li = document.createElement('li');
       const mark = document.createElement('span');
@@ -143,11 +169,11 @@
   }
 
   async function save(value) {
-    $('keyStatus').textContent = '正在保存并重启运行时…';
+    $('keyStatus').textContent = t('savingRestarting');
     try {
       const r = await window.settingsApi.setApiKey(value);
       $('key').value = '';
-      $('keyStatus').innerHTML = r.hasApiKey ? '<span class="ok">已保存密钥</span>' : '已清除';
+      $('keyStatus').innerHTML = r.hasApiKey ? `<span class="ok">${t('saved')}</span>` : t('cleared');
       $('runtime').innerHTML = runtimeText(r.runtime);
     } catch (e) {
       $('keyStatus').innerHTML = `<span class="bad">${String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}</span>`;
@@ -156,7 +182,7 @@
   $('restart').onclick = async () => {
     const button = $('restart');
     button.disabled = true;
-    $('runtime').textContent = '正在重启…';
+    $('runtime').textContent = t('restarting');
     try {
       const r = await window.settingsApi.restartRuntime();
       $('runtime').innerHTML = runtimeText(r.runtime);
@@ -168,11 +194,11 @@
   async function saveOpenAI(value) {
     const status = $('openaiStatus');
     status.dataset.busy = '1';
-    status.textContent = '正在保存并重启运行时…';
+    status.textContent = t('savingRestarting');
     try {
       const r = await window.settingsApi.setOpenAIKey(value);
       $('openaiKey').value = '';
-      status.innerHTML = r.hasOpenAIKey ? '<span class="ok">已保存密钥</span>' : '已清除';
+      status.innerHTML = r.hasOpenAIKey ? `<span class="ok">${t('saved')}</span>` : t('cleared');
       $('runtime').innerHTML = runtimeText(r.runtime);
     } catch (e) {
       status.innerHTML = `<span class="bad">${String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}</span>`;
@@ -184,11 +210,11 @@
     const status = $('codexKeyStatus');
     box.dataset.busy = '1';
     box.disabled = true;
-    status.textContent = '正在切换并重启运行时…';
+    status.textContent = t('switchingRestarting');
     try {
       const r = await window.settingsApi.setCodexUsesApiKey(box.checked);
       box.checked = r.codexUsesApiKey;
-      status.innerHTML = r.codexUsesApiKey ? '<span class="ok">Codex 现在用 OpenAI API 密钥</span>' : 'Codex 用你自己的 ChatGPT 登录';
+      status.innerHTML = r.codexUsesApiKey ? `<span class="ok">${t('codexNowApi')}</span>` : t('codexOwnLogin');
       $('runtime').innerHTML = runtimeText(r.runtime);
     } catch (e) {
       box.checked = !box.checked;

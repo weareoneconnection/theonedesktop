@@ -26,7 +26,7 @@ if (allowed.includes(window.location.origin)) {
     forgetWorkspace: (folder) => ipcRenderer.invoke('desktop:forgetWorkspace', folder),
     /** Safe project metadata for the workspace picker; never returns file contents. */
     inspectWorkspace: (folder) => ipcRenderer.invoke('desktop:inspectWorkspace', folder),
-    openSettings: () => ipcRenderer.invoke('desktop:openSettings'),
+    openSettings: (locale) => ipcRenderer.invoke('desktop:openSettings', locale),
     createTask: (input) => ipcRenderer.invoke('desktop:createTask', input),
     /** Which coding engines this Mac can run right now. */
     engines: () => ipcRenderer.invoke('desktop:engines'),
