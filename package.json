@@ -62,7 +62,7 @@
           ]
         }
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon-win.png",
       "artifactName": "TheOne-Setup-${version}.${ext}"
     },
     "nsis": {

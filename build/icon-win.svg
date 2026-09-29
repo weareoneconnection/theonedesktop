@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- TheOne mark for Windows: the 24-unit icon geometry (tile at 1..23) scaled to the canvas. -->
+  <g transform="scale(42.6667)">
+    <rect x="1" y="1" width="22" height="22" rx="5" fill="#1f1e1d"/>
+    <path d="M17.6 11.9 A5.6 5.6 0 1 1 12.1 6.4" fill="none" stroke="#faf9f5" stroke-width="2.2" stroke-linecap="round"/>
+    <circle cx="15.96" cy="8.04" r="1.95" fill="#e0784a"/>
+  </g>
+</svg>

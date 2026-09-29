@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- TheOne mark (theone-complete/src/app/app-icon.tsx) on Apple's macOS icon grid: 824px tile, 100px margin. -->
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#1f1e1d" filter="url(#shadow)"/>
+  <g transform="translate(62.545 62.545) scale(37.4545)">
+    <path d="M17.6 11.9 A5.6 5.6 0 1 1 12.1 6.4" fill="none" stroke="#faf9f5" stroke-width="2.2" stroke-linecap="round"/>
+    <circle cx="15.96" cy="8.04" r="1.95" fill="#e0784a"/>
+  </g>
+</svg>
