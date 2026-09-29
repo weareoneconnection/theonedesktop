@@ -15,6 +15,7 @@ const { dialog, ipcMain, Notification, shell, app } = require('electron');
 const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
 const { buildAttestation, loadOrCreateKey } = require('./attestation');
+const { installCodex } = require('./codex-install');
 
 const execFileAsync = promisify(execFile);
 
@@ -326,6 +327,21 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     if (name === 'codex') return startCodexLogin({ dataDir: app.getPath('userData') });
     await shell.openExternal(engineDocsUrl(name));
     return { ok: true, opened: 'docs' };
+  });
+  // Install the pinned Codex into the app's data folder, then restart the
+  // runtime so it picks it up. One install at a time.
+  let codexInstalling = null;
+  ipcMain.handle('settings:installCodex', async (event) => {
+    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
+    codexInstalling = codexInstalling || installCodex({
+      dataDir: app.getPath('userData'),
+      onProgress: (progress) => { if (!event.sender.isDestroyed()) event.sender.send('settings:codexInstallProgress', progress); },
+    }).finally(() => { codexInstalling = null; });
+    const result = await codexInstalling;
+    const state = await runtime.restart(...settings.runtimeArgs());
+    const window = getWindow();
+    if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
+    return { binary: result.binary, version: result.version, runtime: state };
   });
   ipcMain.handle('settings:forgetWorkspace', async (event, folder) => {
     if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');

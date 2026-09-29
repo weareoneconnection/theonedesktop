@@ -14,6 +14,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { engineName } = require('./policy');
+const { installedCodexPath } = require('./codex-install');
 
 const DOCS = {
   codex: 'https://developers.openai.com/codex/cli',
@@ -44,8 +45,13 @@ function executable(file) {
   }
 }
 
-function findCodexBinary(env = process.env, candidates = CODEX_CANDIDATES) {
+/**
+ * Codex, in order: an explicit override, the copy TheOne installed (a pinned,
+ * tested version: codex-install.js), the PATH, then the known install places.
+ */
+function findCodexBinary(env = process.env, candidates = CODEX_CANDIDATES, installed = null) {
   if (env.ONECLAW_CODEX_BIN && executable(env.ONECLAW_CODEX_BIN)) return env.ONECLAW_CODEX_BIN;
+  if (installed && executable(installed)) return installed;
   for (const entry of String(env.PATH || '').split(':')) {
     if (!entry) continue;
     const candidate = path.join(entry, 'codex');
@@ -85,9 +91,9 @@ async function listEngines(runtime) {
  * runs is visible beforehand and nothing is typed on their behalf.
  */
 function startCodexLogin({ dataDir, env = process.env, spawnFn = spawn, candidates = CODEX_CANDIDATES }) {
-  const binary = findCodexBinary(env, candidates);
+  const binary = findCodexBinary(env, candidates, installedCodexPath(dataDir));
   if (!binary) {
-    const error = new Error('这台 Mac 上没找到 Codex CLI。装好 ChatGPT 桌面版或 npm i -g @openai/codex 后再试。');
+    const error = new Error('这台 Mac 上还没有 Codex。先点“安装 Codex”，装好后再登录。');
     error.code = 'codex_missing';
     throw error;
   }

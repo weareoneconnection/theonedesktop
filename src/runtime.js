@@ -19,6 +19,15 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { FALLBACK_PATH, codexEnv, mergePath } = require('./policy');
+const { findCodexBinary } = require('./engines');
+const { installedCodexPath } = require('./codex-install');
+
+/** ONECLAW_CODEX_BIN for the runtime: an explicit one stays; else the one found here. */
+function codexBinaryEnv(dataDir, env = process.env) {
+  if (env.ONECLAW_CODEX_BIN) return { ONECLAW_CODEX_BIN: env.ONECLAW_CODEX_BIN };
+  const binary = findCodexBinary(env, undefined, installedCodexPath(dataDir));
+  return binary ? { ONECLAW_CODEX_BIN: binary } : {};
+}
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -118,6 +127,9 @@ class LocalRuntime {
       ...(this.openaiKey ? { THEONE_OPENAI_API_KEY: this.openaiKey } : {}),
       // Only when Codex is set to use the key: see codexEnv.
       ...codex,
+      // The Codex this app found (its own install first, then ChatGPT's), so
+      // the runtime uses the same one rather than searching again.
+      ...codexBinaryEnv(this.dataDir),
     };
 
     this.child = spawn(process.execPath, [this.entry], {

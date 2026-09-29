@@ -11,4 +11,11 @@ contextBridge.exposeInMainWorld('settingsApi', {
   restartRuntime: () => ipcRenderer.invoke('settings:restartRuntime'),
   engines: () => ipcRenderer.invoke('settings:engines'),
   engineSetup: (engine) => ipcRenderer.invoke('settings:engineSetup', engine),
+  installCodex: () => ipcRenderer.invoke('settings:installCodex'),
+  /** Progress of installCodex; returns a function that stops listening. */
+  onCodexInstallProgress: (listener) => {
+    const handler = (_event, progress) => listener(progress);
+    ipcRenderer.on('settings:codexInstallProgress', handler);
+    return () => ipcRenderer.removeListener('settings:codexInstallProgress', handler);
+  },
 });

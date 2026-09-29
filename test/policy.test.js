@@ -194,7 +194,7 @@ test('codex login runs the binary this Mac actually has, in a file you can read 
 
   assert.throws(
     () => engines.startCodexLogin({ dataDir, env: { PATH: '/nonexistent' }, spawnFn, candidates: [] }),
-    /没找到 Codex CLI/,
+    /还没有 Codex/,
   );
 });
 
