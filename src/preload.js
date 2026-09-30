@@ -22,6 +22,8 @@ if (allowed.includes(window.location.origin)) {
     /** darwin or win32: the web shell leaves room for the traffic lights only on a Mac. */
     platform: process.platform,
     info: () => ipcRenderer.invoke('desktop:info'),
+    /** Account boundary for the device-wide runtime. No task call works before this. */
+    setIdentity: (identity) => ipcRenderer.invoke('desktop:setIdentity', identity),
     /** This Mac's signed isolation statement for a TheOne challenge. */
     attest: (tenantId, challenge) => ipcRenderer.invoke('desktop:attest', { tenantId, challenge }),
     pickWorkspace: () => ipcRenderer.invoke('desktop:pickWorkspace'),

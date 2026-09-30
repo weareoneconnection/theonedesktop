@@ -16,6 +16,7 @@ const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrig
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
 const { buildAttestation, loadOrCreateKey } = require('./attestation');
 const { installCodex } = require('./codex-install');
+const { createTaskOwnershipStore, identityKey } = require('./task-ownership');
 
 const execFileAsync = promisify(execFile);
 const SETTINGS_SHORTCUT = process.platform === 'darwin' ? '⌘,' : 'Ctrl+,';
@@ -74,6 +75,32 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   };
 
   const handle = (channel, handler) => ipcMain.handle(channel, guard(handler));
+  const handleWithEvent = (channel, handler) => ipcMain.handle(channel, async (event, ...args) => {
+    const url = event.senderFrame ? event.senderFrame.url : '';
+    if (!isAllowedOrigin(url)) {
+      log(`refused bridge call from ${url || 'unknown frame'}`);
+      throw new Error('This page is not allowed to use TheOne desktop features.');
+    }
+    return handler(event, ...args);
+  });
+
+  const identities = new Map();
+  const ownership = createTaskOwnershipStore(app.getPath('userData'));
+  const currentIdentity = (event) => {
+    const identity = identities.get(event.sender.id);
+    if (!identity) throw new Error('Sign in again before using local tasks.');
+    return identity;
+  };
+
+  handleWithEvent('desktop:setIdentity', async (event, identity) => {
+    if (identity === null) { identities.delete(event.sender.id); return { ok: true, identityIsolation: true }; }
+    // Validate before retaining it. The raw ids are never persisted here.
+    identityKey(identity);
+    const firstBinding = !identities.has(event.sender.id);
+    identities.set(event.sender.id, { tenantId: String(identity.tenantId), userId: String(identity.userId) });
+    if (firstBinding) event.sender.once('destroyed', () => identities.delete(event.sender.id));
+    return { ok: true, identityIsolation: true };
+  });
 
   let attestationKey = null;
   const deviceKey = () => (attestationKey ||= loadOrCreateKey(app.getPath('userData')));
@@ -86,6 +113,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     hasOpenAIKey: settings.hasOpenAIKey,
     codexUsesApiKey: settings.codexUsesApiKey,
     workspaces: settings.workspaces,
+    identityIsolation: true,
   });
 
   handle('desktop:info', async () => {
@@ -138,7 +166,8 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     return { ok: true, opened: 'docs' };
   });
 
-  handle('desktop:createTask', async (body) => {
+  handleWithEvent('desktop:createTask', async (event, body) => {
+    const identity = currentIdentity(event);
     if (runtime.state.status !== 'ready') {
       throw new Error('本机 Code Runtime 未连接。请在 TheOne Desktop 设置中启动本机运行时后重试。');
     }
@@ -160,6 +189,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     }, { 'x-oneclaw-dispatch': 'background' });
     const id = created && (created.id || (created.task && created.task.id));
     if (!id) throw new Error('The local runtime did not return a task id.');
+    ownership.claim(String(id), identity);
     return { taskId: toLocalId(id) };
   });
 
@@ -170,8 +200,9 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
       .map((item) => ({ id: String(item.id), taskId: toLocalId(String(item.taskId)), stepId: String(item.stepId || ''), action: String(item.action || ''), reason: String(item.reason || '').slice(0, 300), objective: String((item.input && item.input.objective) || '').slice(0, 200) }));
   };
 
-  handle('desktop:getTask', async (taskId) => {
+  handleWithEvent('desktop:getTask', async (event, taskId) => {
     const id = fromLocalId(taskId);
+    ownership.assertOwns(id, currentIdentity(event));
     const [raw, approvals] = await Promise.all([
       runtime.request('GET', `/v1/tasks/${encodeURIComponent(id)}`),
       pendingFor(id).catch(() => []),
@@ -183,8 +214,9 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
 
   // A running task's log from a cursor, so a local task streams the same way
   // a cloud one does instead of re-fetching the whole task every two seconds.
-  handle('desktop:taskLogs', async (taskId, since) => {
+  handleWithEvent('desktop:taskLogs', async (event, taskId, since) => {
     const id = fromLocalId(taskId);
+    ownership.assertOwns(id, currentIdentity(event));
     const from = Number.isFinite(Number(since)) && Number(since) >= 0 ? Math.floor(Number(since)) : 0;
     const body = await runtime.request('GET', `/v1/tasks/${encodeURIComponent(id)}/logs?since=${from}`);
     return {
@@ -197,10 +229,12 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
 
   // What the tasks on this Mac cost: the runtime's recent tasks, reduced to
   // what the account menu needs. Logs and diffs stay here.
-  handle('desktop:usage', async () => {
+  handleWithEvent('desktop:usage', async (event) => {
     if (runtime.state.status !== 'ready') return { rows: [], available: false };
     const body = await runtime.request('GET', '/v1/tasks?limit=200');
-    return { rows: usageRows(body && body.items), available: true };
+    const identity = currentIdentity(event);
+    const items = (Array.isArray(body && body.items) ? body.items : []).filter((item) => ownership.owns(item && item.id, identity));
+    return { rows: usageRows(items), available: true };
   });
 
   // A read the chat agent asked this Mac for: the runtime answers it, the
@@ -217,14 +251,16 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     return { ok: true, action: call.action, output: (step && step.output) || result || null };
   });
 
-  handle('desktop:pendingTasks', async () => {
+  handleWithEvent('desktop:pendingTasks', async (event) => {
     if (runtime.state.status !== 'ready') return [];
     const list = await pendingFor(null);
-    return list.filter((item) => item.action === 'code.patch.apply').map((item) => ({ taskId: item.taskId, objective: item.objective }));
+    const identity = currentIdentity(event);
+    return list.filter((item) => item.action === 'code.patch.apply' && ownership.owns(fromLocalId(item.taskId), identity)).map((item) => ({ taskId: item.taskId, objective: item.objective }));
   });
 
-  handle('desktop:taskAction', async (taskId, action) => {
+  handleWithEvent('desktop:taskAction', async (event, taskId, action) => {
     const id = fromLocalId(taskId);
+    ownership.assertOwns(id, currentIdentity(event));
     if (action === 'approve_all') {
       const approvals = await pendingFor(id);
       for (const approval of approvals) {
@@ -241,8 +277,9 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
 
   // A note for a task that is still working: the agent reads it before its
   // next step (OneClaw's /agent/steer).
-  handle('desktop:steerTask', async (taskId, message) => {
+  handleWithEvent('desktop:steerTask', async (event, taskId, message) => {
     const id = fromLocalId(taskId);
+    ownership.assertOwns(id, currentIdentity(event));
     await runtime.request('POST', `/v1/tasks/${encodeURIComponent(id)}/agent/steer`, { message: steeringMessage(message) });
     return { ok: true };
   });
