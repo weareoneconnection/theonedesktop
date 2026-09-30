@@ -42,6 +42,9 @@ if (app.isPackaged) app.setAsDefaultProtocolClient('theone');
 
 let mainWindow = null;
 let settingsWindow = null;
+// Set when the loaded TheOne page has its own settings centre; ⌘, opens it
+// there. Cleared on every navigation, so an older page gets the window.
+let settingsInApp = false;
 let pendingDeepLink = null;
 const dataDir = app.getPath('userData');
 fs.mkdirSync(dataDir, { recursive: true });
@@ -172,7 +175,7 @@ function buildMenu() {
         { role: 'about', label: '关于 TheOne' },
         updateItem(),
         { type: 'separator' },
-        { label: '设置…', accelerator: 'CommandOrControl+,', click: openSettings },
+        { label: '设置…', accelerator: 'CommandOrControl+,', click: () => (settingsInApp && mainWindow ? send({ type: 'command', command: 'open-settings' }) : openSettings()) },
         { type: 'separator' },
         // Services and hiding are macOS ideas; Windows has neither.
         ...(process.platform === 'darwin' ? [
@@ -275,6 +278,9 @@ function createWindow() {
 
   // Only TheOne loads in this window. Everything else is the browser's job,
   // and never receives the desktop bridge.
+  mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) settingsInApp = false;
+  });
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const returnTo = signInStart(url);
     if (returnTo) {
@@ -327,7 +333,7 @@ app.whenReady().then(async () => {
   settings = new Settings({ dataDir, safeStorage });
   runtime = new LocalRuntime({ entry: runtimeEntry(), dataDir, log });
   if (devApiKey) settings.devApiKey = devApiKey;
-  registerBridge({ runtime, settings, getWindow: () => mainWindow, openSettings, log });
+  registerBridge({ runtime, settings, getWindow: () => mainWindow, openSettings, onSettingsInApp: () => { settingsInApp = true; }, log });
   let lastUpdateStatus = '';
   updater = createUpdater({
     app,

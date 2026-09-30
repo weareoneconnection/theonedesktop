@@ -63,7 +63,7 @@ async function inspectWorkspace(folder) {
   };
 }
 
-function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
+function registerBridge({ runtime, settings, getWindow, openSettings, onSettingsInApp, log }) {
   const guard = (handler) => async (event, ...args) => {
     const url = event.senderFrame ? event.senderFrame.url : '';
     if (!isAllowedOrigin(url)) {
@@ -268,86 +268,113 @@ function registerBridge({ runtime, settings, getWindow, openSettings, log }) {
     return true;
   });
 
-  // The settings window is a local file, not the web page: its own channel,
-  // checked against the file it was loaded from.
-  ipcMain.handle('settings:get', (event) => {
-    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
-    return { hasApiKey: settings.hasApiKey, hasOpenAIKey: settings.hasOpenAIKey, codexUsesApiKey: settings.codexUsesApiKey, runtime: runtime.state, workspaces: settings.workspaces, version: app.getVersion() };
-  });
-  ipcMain.handle('settings:setApiKey', async (event, value) => {
-    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
-    const key = String(value || '').trim();
-    if (key && !looksLikeAnthropicKey(key)) throw new Error('That does not look like an Anthropic API key (sk-ant-…).');
-    settings.setApiKey(key);
-    const state = await runtime.restart(...settings.runtimeArgs());
+  // What settings can change, shared by the two places that change it: the
+  // TheOne page's settings centre (0.4.0) and the local settings window kept
+  // for older pages. Keys are write-only — neither ever reads one back.
+  const announce = (state) => {
     const window = getWindow();
     if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
-    return { hasApiKey: settings.hasApiKey, runtime: state };
-  });
-  ipcMain.handle('settings:setOpenAIKey', async (event, value) => {
-    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
-    const key = String(value || '').trim();
-    if (key && !looksLikeOpenAIKey(key)) throw new Error('That does not look like an OpenAI API key (sk-…).');
-    settings.setOpenAIKey(key);
-    // Without a key there is nothing for Codex to use: back to its own login.
-    if (!key) settings.codexUsesApiKey = false;
-    const state = await runtime.restart(...settings.runtimeArgs());
-    const window = getWindow();
-    if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
-    return { hasOpenAIKey: settings.hasOpenAIKey, codexUsesApiKey: settings.codexUsesApiKey, runtime: state };
-  });
-  ipcMain.handle('settings:setCodexUsesApiKey', async (event, value) => {
-    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
-    if (value && !settings.hasOpenAIKey) throw new Error('Save an OpenAI API key first.');
-    settings.codexUsesApiKey = Boolean(value);
-    const state = await runtime.restart(...settings.runtimeArgs());
-    const window = getWindow();
-    if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
-    return { codexUsesApiKey: settings.codexUsesApiKey, runtime: state };
-  });
-  // Bring the local runtime back without quitting the app. It can die for
-  // reasons that have nothing to do with the app — a crash, the machine
-  // sleeping, someone killing the process — and until now the only way back
-  // was to quit and reopen.
-  ipcMain.handle('settings:restartRuntime', async (event) => {
-    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
-    // The same key the app started the runtime with, decrypted from the keychain.
-    const state = await runtime.restart(...settings.runtimeArgs());
-    const window = getWindow();
-    if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
-    return { runtime: state, hasApiKey: settings.hasApiKey };
-  });
-
-  ipcMain.handle('settings:engines', async (event) => {
-    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
-    return listEngines(runtime);
-  });
-  ipcMain.handle('settings:engineSetup', async (event, engine) => {
-    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
-    const name = engineName(engine);
-    if (name === 'codex') return startCodexLogin({ dataDir: app.getPath('userData') });
-    await shell.openExternal(engineDocsUrl(name));
-    return { ok: true, opened: 'docs' };
-  });
+    return state;
+  };
+  const restartRuntime = async () => announce(await runtime.restart(...settings.runtimeArgs()));
+  const ops = {
+    get: () => ({ hasApiKey: settings.hasApiKey, hasOpenAIKey: settings.hasOpenAIKey, codexUsesApiKey: settings.codexUsesApiKey, runtime: runtime.state, workspaces: settings.workspaces, version: app.getVersion(), platform: process.platform }),
+    async setApiKey(value) {
+      const key = String(value || '').trim();
+      if (key && !looksLikeAnthropicKey(key)) throw new Error('That does not look like an Anthropic API key (sk-ant-…).');
+      settings.setApiKey(key);
+      return { hasApiKey: settings.hasApiKey, runtime: await restartRuntime() };
+    },
+    async setOpenAIKey(value) {
+      const key = String(value || '').trim();
+      if (key && !looksLikeOpenAIKey(key)) throw new Error('That does not look like an OpenAI API key (sk-…).');
+      settings.setOpenAIKey(key);
+      // Without a key there is nothing for Codex to use: back to its own login.
+      if (!key) settings.codexUsesApiKey = false;
+      return { hasOpenAIKey: settings.hasOpenAIKey, codexUsesApiKey: settings.codexUsesApiKey, runtime: await restartRuntime() };
+    },
+    async setCodexUsesApiKey(value) {
+      if (value && !settings.hasOpenAIKey) throw new Error('Save an OpenAI API key first.');
+      settings.codexUsesApiKey = Boolean(value);
+      return { codexUsesApiKey: settings.codexUsesApiKey, runtime: await restartRuntime() };
+    },
+    // Bring the local runtime back without quitting the app. It can die for
+    // reasons that have nothing to do with the app — a crash, the machine
+    // sleeping, someone killing the process.
+    async restartRuntime() {
+      return { runtime: await restartRuntime(), hasApiKey: settings.hasApiKey };
+    },
+    async engineSetup(engine) {
+      const name = engineName(engine);
+      if (name === 'codex') return startCodexLogin({ dataDir: app.getPath('userData') });
+      await shell.openExternal(engineDocsUrl(name));
+      return { ok: true, opened: 'docs' };
+    },
+  };
   // Install the pinned Codex into the app's data folder, then restart the
   // runtime so it picks it up. One install at a time.
   let codexInstalling = null;
-  ipcMain.handle('settings:installCodex', async (event) => {
-    if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
-    codexInstalling = codexInstalling || installCodex({
-      dataDir: app.getPath('userData'),
-      onProgress: (progress) => { if (!event.sender.isDestroyed()) event.sender.send('settings:codexInstallProgress', progress); },
-    }).finally(() => { codexInstalling = null; });
+  const installPinnedCodex = async (onProgress) => {
+    codexInstalling = codexInstalling || installCodex({ dataDir: app.getPath('userData'), onProgress }).finally(() => { codexInstalling = null; });
     const result = await codexInstalling;
-    const state = await runtime.restart(...settings.runtimeArgs());
+    return { binary: result.binary, version: result.version, runtime: await restartRuntime() };
+  };
+
+  // The page asks to change a key: the person confirms it here, in a dialog
+  // the page cannot draw or click. A page that went wrong — or someone else's
+  // script on it — cannot quietly swap in a key of its own, which would send
+  // this computer's coding work to their account.
+  const confirmKeyChange = async (label, value) => {
+    const clearing = !String(value || '').trim();
+    const english = app.getLocale().toLowerCase().startsWith('en');
     const window = getWindow();
-    if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
-    return { binary: result.binary, version: result.version, runtime: state };
-  });
-  ipcMain.handle('settings:forgetWorkspace', async (event, folder) => {
+    const options = {
+      type: 'question',
+      buttons: english ? [clearing ? 'Remove' : 'Save', 'Cancel'] : [clearing ? '移除' : '保存', '取消'],
+      defaultId: 0,
+      cancelId: 1,
+      message: english
+        ? (clearing ? `Remove the ${label} key from this computer?` : `Save a new ${label} key on this computer?`)
+        : (clearing ? `从这台电脑上移除 ${label} 密钥？` : `在这台电脑上保存新的 ${label} 密钥？`),
+      detail: english
+        ? 'Requested from TheOne settings. The key is encrypted in the system keychain and never sent to TheOne.'
+        : '来自 TheOne 设置。密钥用系统钥匙串加密保存在本机，不会发送给 TheOne。',
+    };
+    const { response } = window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
+    if (response !== 0) throw new Error(english ? 'Cancelled.' : '已取消。');
+  };
+
+  // The TheOne page's settings centre.
+  handle('desktop:settings', async () => ops.get());
+  handle('desktop:setApiKey', async (value) => { await confirmKeyChange('Anthropic', value); return ops.setApiKey(value); });
+  handle('desktop:setOpenAIKey', async (value) => { await confirmKeyChange('OpenAI', value); return ops.setOpenAIKey(value); });
+  handle('desktop:setCodexUsesApiKey', async (value) => ops.setCodexUsesApiKey(value));
+  handle('desktop:restartRuntime', async () => ops.restartRuntime());
+  handle('desktop:installCodex', async () => installPinnedCodex((progress) => {
+    const window = getWindow();
+    if (window) window.webContents.send('desktop:event', { type: 'codexInstall', progress });
+  }));
+  // The page says it has a settings centre: ⌘, opens it there from now on,
+  // until the page navigates away (main.js resets it).
+  handle('desktop:settingsInApp', async () => { if (onSettingsInApp) onSettingsInApp(); return true; });
+
+  // The local settings window is a file, not the web page: its own channel,
+  // checked against the file it was loaded from.
+  const local = (handler) => async (event, ...args) => {
     if (!String(event.senderFrame && event.senderFrame.url).startsWith('file://')) throw new Error('refused');
-    return settings.removeWorkspace(String(folder || ''));
-  });
+    return handler(event, ...args);
+  };
+  ipcMain.handle('settings:get', local(() => ops.get()));
+  ipcMain.handle('settings:setApiKey', local((_event, value) => ops.setApiKey(value)));
+  ipcMain.handle('settings:setOpenAIKey', local((_event, value) => ops.setOpenAIKey(value)));
+  ipcMain.handle('settings:setCodexUsesApiKey', local((_event, value) => ops.setCodexUsesApiKey(value)));
+  ipcMain.handle('settings:restartRuntime', local(() => ops.restartRuntime()));
+  ipcMain.handle('settings:engines', local(() => listEngines(runtime)));
+  ipcMain.handle('settings:engineSetup', local((_event, engine) => ops.engineSetup(engine)));
+  ipcMain.handle('settings:installCodex', local((event) => installPinnedCodex((progress) => {
+    if (!event.sender.isDestroyed()) event.sender.send('settings:codexInstallProgress', progress);
+  })));
+  ipcMain.handle('settings:forgetWorkspace', local((_event, folder) => settings.removeWorkspace(String(folder || ''))));
 
   return { info };
 }

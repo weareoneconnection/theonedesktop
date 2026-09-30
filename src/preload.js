@@ -29,6 +29,14 @@ if (allowed.includes(window.location.origin)) {
     /** Safe project metadata for the workspace picker; never returns file contents. */
     inspectWorkspace: (folder) => ipcRenderer.invoke('desktop:inspectWorkspace', folder),
     openSettings: (locale) => ipcRenderer.invoke('desktop:openSettings', locale),
+    /** The settings centre in the page (0.4.0): read state; keys are write-only and confirmed natively. */
+    settings: () => ipcRenderer.invoke('desktop:settings'),
+    setApiKey: (value) => ipcRenderer.invoke('desktop:setApiKey', value),
+    setOpenAIKey: (value) => ipcRenderer.invoke('desktop:setOpenAIKey', value),
+    setCodexUsesApiKey: (value) => ipcRenderer.invoke('desktop:setCodexUsesApiKey', value),
+    restartRuntime: () => ipcRenderer.invoke('desktop:restartRuntime'),
+    installCodex: () => ipcRenderer.invoke('desktop:installCodex'),
+    settingsInApp: () => ipcRenderer.invoke('desktop:settingsInApp'),
     createTask: (input) => ipcRenderer.invoke('desktop:createTask', input),
     /** Which coding engines this Mac can run right now. */
     engines: () => ipcRenderer.invoke('desktop:engines'),
