@@ -239,7 +239,11 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
 
   // A read the chat agent asked this Mac for: the runtime answers it, the
   // allowlist and the folder gate decide whether it may.
-  handle('desktop:runAction', async (body) => {
+  handleWithEvent('desktop:runAction', async (event, body) => {
+    // Opened folders are device-level capabilities, but using them is still
+    // an account action. Never let a renderer keep reading local files after
+    // logout or while an account switch has not finished binding.
+    currentIdentity(event);
     if (runtime.state.status !== 'ready') throw new Error('The local runtime is not running.');
     const call = localAgentCall(body, settings.workspaces);
     const result = await runtime.request('POST', '/v1/actions/execute', {
