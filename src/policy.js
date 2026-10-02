@@ -192,7 +192,11 @@ function buildLocalTaskInput(body, pickedWorkspaces, taskCopiesRoot) {
   const objective = String(value.objective || '').trim();
   const workspacePath = String(value.workspacePath || '').trim();
   if (objectiveTooShort(objective)) throw new Error('Describe the change in at least a sentence.');
-  if (objective.length > 8000) throw new Error('The objective is too long (8,000 characters maximum).');
+  // Follow-up turns include a compact checkpoint from the previous run. The
+  // old 8k cap rejected a perfectly valid "继续" after a large task stopped
+  // at its safety limit. 32k still bounds IPC/input size while leaving room
+  // for that checkpoint and the person's next instruction.
+  if (objective.length > 32000) throw new Error('The objective is too long (32,000 characters maximum).');
   if (!workspacePath || !path.isAbsolute(workspacePath)) throw new Error('Choose a folder on this computer.');
   const picked = (pickedWorkspaces || []).some((folder) => isInside(folder, workspacePath));
   const taskCopy = Boolean(taskCopiesRoot)
@@ -208,7 +212,7 @@ function buildLocalTaskInput(body, pickedWorkspaces, taskCopiesRoot) {
   // A big task does not fit in the runtime's default turn limit.
   if (value.maxTurns !== undefined && value.maxTurns !== '') {
     const turns = Number(value.maxTurns);
-    if (!Number.isInteger(turns) || turns < 10 || turns > 200) throw new Error('Turn limit must be a whole number between 10 and 200.');
+    if (!Number.isInteger(turns) || turns < 10 || turns > 1000) throw new Error('Turn limit must be a whole number between 10 and 1,000.');
     input.maxTurns = turns;
   }
   // Which agent executes it. The runtime falls back to its own engine when the

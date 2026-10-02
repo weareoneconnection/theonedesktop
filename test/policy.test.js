@@ -233,11 +233,18 @@ test('files handed to a local run travel with it, within the runtime limits', ()
 });
 
 test('a big local task can ask for more turns, within range', () => {
-  const input = policy.buildLocalTaskInput({ objective: '升级全部依赖并修好构建', workspacePath: '/tmp/repo', maxTurns: 120 }, ['/tmp/repo']);
-  assert.equal(input.maxTurns, 120);
-  for (const bad of [5, 500, 1.5]) {
-    assert.throws(() => policy.buildLocalTaskInput({ objective: '升级全部依赖并修好构建', workspacePath: '/tmp/repo', maxTurns: bad }, ['/tmp/repo']), /between 10 and 200/);
+  const input = policy.buildLocalTaskInput({ objective: '升级全部依赖并修好构建', workspacePath: '/tmp/repo', maxTurns: 600 }, ['/tmp/repo']);
+  assert.equal(input.maxTurns, 600);
+  for (const bad of [5, 1001, 1.5]) {
+    assert.throws(() => policy.buildLocalTaskInput({ objective: '升级全部依赖并修好构建', workspacePath: '/tmp/repo', maxTurns: bad }, ['/tmp/repo']), /between 10 and 1,000/);
   }
+});
+
+test('a continued local task can carry a large checkpoint', () => {
+  const objective = `继续完成升级\n\n${'上一轮进度。'.repeat(2000)}`;
+  assert.ok(objective.length > 8000 && objective.length < 32000);
+  assert.equal(policy.buildLocalTaskInput({ objective, workspacePath: '/tmp/repo' }, ['/tmp/repo']).objective, objective);
+  assert.throws(() => policy.buildLocalTaskInput({ objective: 'x'.repeat(32001), workspacePath: '/tmp/repo' }, ['/tmp/repo']), /32,000/);
 });
 
 test('a local task can name the Claude model it runs on', () => {

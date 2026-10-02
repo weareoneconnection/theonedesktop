@@ -264,7 +264,12 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     if (action === 'approve_all') {
       const approvals = await pendingFor(id);
       for (const approval of approvals) {
-        await runtime.request('POST', `/v1/approvals/${encodeURIComponent(approval.id)}/approve`, { decidedBy: 'theone-desktop' });
+        await runtime.request(
+          'POST',
+          `/v1/approvals/${encodeURIComponent(approval.id)}/approve`,
+          { decidedBy: 'theone-desktop' },
+          { 'x-oneclaw-dispatch': 'background' },
+        );
       }
       return { ok: true, approved: approvals.length };
     }
