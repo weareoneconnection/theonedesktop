@@ -22,6 +22,7 @@ const { FALLBACK_PATH, codexEnv, mergePath } = require('./policy');
 const { findCodexBinary } = require('./engines');
 const { installedCodexPath } = require('./codex-install');
 const { gitBash, systemEnv, workspaceRoots } = require('./platform');
+const { LOCAL_TENANT, adoptLocalTasks } = require('./local-tenant');
 
 /** ONECLAW_CODEX_BIN for the runtime: an explicit one stays; else the one found here. */
 function codexBinaryEnv(dataDir, env = process.env) {
@@ -121,6 +122,8 @@ class LocalRuntime {
       // may edit the person's own folder, and resuming that unasked is wrong.
       ONECLAW_TASK_STORE: 'file',
       ONECLAW_TASK_STORE_FILE: path.join(this.dataDir, 'tasks.json'),
+      // One person's runtime: without a tenant it creates no tasks at all.
+      ONECLAW_TENANT_ID: LOCAL_TENANT,
       ONECLAW_RECOVER_ON_BOOT: 'false',
       ONECLAW_AGENT_MAX_CONCURRENCY: '2',
       // Same room as the cloud runtime (150 on Railway; the runtime's own
@@ -138,6 +141,8 @@ class LocalRuntime {
       ...codexBinaryEnv(this.dataDir),
     };
 
+    // History saved before the runtime had a tenant stays visible.
+    adoptLocalTasks(path.join(this.dataDir, 'tasks.json'));
     this.child = spawn(process.execPath, [this.entry], {
       cwd: runtimeDir,
       env,
