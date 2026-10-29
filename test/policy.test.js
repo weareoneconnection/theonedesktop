@@ -390,7 +390,7 @@ test('a local task keeps what the result card and the cost receipt read', () => 
       verificationBinding: { status: 'covered', verifiedTree: 't', deliveredCommit: 'c', finalCommit: 'c', ci: null },
       pendingWrite: { tool: 'edit_file', target: 'src/a.ts' },
       repository: { remote: 'https://github.com/o/r.git', branch: 'main', head: 'abc', upstream: 'origin/main', behind: 1, ahead: 0 },
-      agentReceipt: { startedAt: '2026-10-29T12:00:00Z', finishedAt: '2026-10-29T12:10:00Z', diff: 'x'.repeat(10), modelUsageRecords: [{ provider: 'openai', providerResponseModel: 'gpt-5.6-luna', providerResponseId: 'resp_1', rawUsage: { input_tokens: 10 }, mappedUsage: { inputTokens: 3, cacheReadInputTokens: 7 }, secret: 'dropped' }] },
+      agentReceipt: { startedAt: '2026-10-29T12:00:00Z', finishedAt: '2026-10-29T12:10:00Z', toolCalls: 37, diff: 'x'.repeat(10), modelUsageRecords: [{ provider: 'openai', providerResponseModel: 'gpt-5.6-luna', providerResponseId: 'resp_1', rawUsage: { input_tokens: 10 }, mappedUsage: { inputTokens: 3, cacheReadInputTokens: 7 }, secret: 'dropped' }] },
     } }],
   });
   assert.equal(task.writeGate, true);
@@ -404,6 +404,7 @@ test('a local task keeps what the result card and the cost receipt read', () => 
   assert.equal(output.agentReceipt.modelUsageRecords[0].mappedUsage.cacheReadInputTokens, 7);
   assert.equal(output.agentReceipt.modelUsageRecords[0].secret, undefined);
   assert.equal(output.agentReceipt.diff, undefined);
+  assert.equal(output.agentReceipt.toolCalls, 37);
 });
 
 test('a local change can ask at its first change, only as one attempt', () => {

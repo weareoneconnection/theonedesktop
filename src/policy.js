@@ -354,6 +354,8 @@ function compactTask(raw) {
         agentReceipt: plain(output.agentReceipt, (value) => ({
           startedAt: value.startedAt ? String(value.startedAt) : undefined,
           finishedAt: value.finishedAt ? String(value.finishedAt) : undefined,
+          // The agent's own tool calls: one coding step makes dozens.
+          toolCalls: typeof value.toolCalls === 'number' ? value.toolCalls : undefined,
           modelUsageRecords: Array.isArray(value.modelUsageRecords) ? value.modelUsageRecords.slice(0, 500).map(usageRecord) : [],
         })),
       },
