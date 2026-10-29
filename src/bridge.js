@@ -182,16 +182,51 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     }
     // A thread's next turn may continue in a copy the runtime kept.
     const input = buildLocalTaskInput(body, settings.workspaces, path.join(runtime.dataDir, 'tasks'));
+    // "Approve the change" on an exploration that stopped at its first change:
+    // that click is the approval, so it is checked here against the runtime's
+    // own record — the parent is this person's task and really is waiting at
+    // its first change — and then recorded as this turn's approval below.
+    const firstChange = body && body.approvedFirstChange === true && input.analyze !== true
+      ? await awaitingFirstChange(fromLocalId(String(body.parentTaskId || '')), identity)
+      : false;
+    if (body && body.approvedFirstChange === true && !firstChange) {
+      throw new Error('The task this approves is not waiting at its first change; approve the change on its own card instead.');
+    }
+    // A gated exploration is a read: the runtime stops it before any change.
+    const read = input.analyze === true || input.writeGate === true;
     const created = await runtime.request('POST', '/v1/actions/execute', {
-      action: input.analyze === true ? 'code.workspace.analyze' : 'code.patch.apply',
-      approvalMode: input.analyze === true ? 'auto' : 'manual',
+      action: read ? 'code.workspace.analyze' : 'code.patch.apply',
+      approvalMode: read ? 'auto' : 'manual',
       input,
     }, { 'x-oneclaw-dispatch': 'background' });
     const id = created && (created.id || (created.task && created.task.id));
     if (!id) throw new Error('The local runtime did not return a task id.');
     ownership.claim(String(id), identity);
+    if (firstChange) await approveWhenAsked(String(id), 'theone-desktop: approved at the first change');
     return { taskId: toLocalId(id) };
   });
+
+  const awaitingFirstChange = async (parentId, identity) => {
+    if (!parentId || !ownership.owns(parentId, identity)) return false;
+    const parent = compactTask(await runtime.request('GET', `/v1/tasks/${encodeURIComponent(parentId)}`).catch(() => null));
+    return Boolean(parent && parent.steps.some((step) => step.output && step.output.status === 'agent_run_awaiting_write_approval'));
+  };
+
+  // The runtime asks for approval once it picks the task up; answer that one
+  // request for this task, and nothing else.
+  const approveWhenAsked = async (id, decidedBy) => {
+    for (let waited = 0; waited < 15_000; waited += 250) {
+      const approvals = await pendingFor(id).catch(() => []);
+      if (approvals.length) {
+        for (const approval of approvals) {
+          await runtime.request('POST', `/v1/approvals/${encodeURIComponent(approval.id)}/approve`, { decidedBy }, { 'x-oneclaw-dispatch': 'background' });
+        }
+        return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return false;
+  };
 
   const pendingFor = async (id) => {
     const list = await runtime.request('GET', '/v1/approvals/pending');

@@ -257,7 +257,29 @@ function buildLocalTaskInput(body, pickedWorkspaces, taskCopiesRoot) {
   const setup = String(value.setup || '').trim();
   if (setup.length > 2000) throw new Error('The setup script is too long.');
   if (setup) input.setup = setup;
+  // Explore first and stop at the first change (OneClaw AgentTask.writeGate).
+  // The runtime itself refuses it for anything it could not stop there.
+  if (value.writeGate === true && attempts === 1) input.writeGate = true;
   return input;
+}
+
+function plain(value, project) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? project(value) : null;
+}
+
+/** One model call's usage, the fields TheOne's cost ledger reads. */
+function usageRecord(record) {
+  const value = record && typeof record === 'object' ? record : {};
+  const usage = (item) => (item && typeof item === 'object' && !Array.isArray(item) ? item : null);
+  return {
+    provider: value.provider ? String(value.provider) : null,
+    providerResponseModel: value.providerResponseModel ? String(value.providerResponseModel) : null,
+    providerResponseId: value.providerResponseId ? String(value.providerResponseId) : null,
+    requestedModel: value.requestedModel ? String(value.requestedModel) : null,
+    rawUsage: usage(value.rawUsage),
+    mappedUsage: usage(value.mappedUsage),
+    costUsd: typeof value.costUsd === 'number' ? value.costUsd : null,
+  };
 }
 
 /** The same compact task shape TheOne's /api/theone/agent/task returns. */
@@ -301,6 +323,39 @@ function compactTask(raw) {
         attempts: Array.isArray(output.attempts) ? output.attempts : null,
         setupOutput: String(output.setupOutput || '').slice(0, 4000),
         error: String(step.error || output.error || '').slice(0, 2000),
+        // What happened to the work after the run, as the result card reads
+        // it. Leaving these out made every written-back local run read "still
+        // in the copy", and every local receipt "cost UNKNOWN".
+        lifecycleStatus: output.lifecycleStatus ? String(output.lifecycleStatus) : undefined,
+        failureClass: output.failureClass ? String(output.failureClass) : null,
+        nextAction: output.nextAction ? String(output.nextAction) : undefined,
+        sourceWorkspacePath: output.sourceWorkspacePath ? String(output.sourceWorkspacePath) : undefined,
+        dirtyFiles: Array.isArray(output.dirtyFiles) ? output.dirtyFiles.slice(0, 50).map(String) : undefined,
+        trustedStagingWriteback: plain(output.trustedStagingWriteback, (value) => ({
+          applied: value.applied === true,
+          changedFiles: Array.isArray(value.changedFiles) ? value.changedFiles.slice(0, 200).map(String) : [],
+        })),
+        trustedStagingWritebackError: output.trustedStagingWritebackError ? String(output.trustedStagingWritebackError).slice(0, 1000) : null,
+        trustedStagingConflicts: Array.isArray(output.trustedStagingConflicts)
+          ? output.trustedStagingConflicts.slice(0, 100).map((item) => ({ path: String(item && item.path || ''), inFolder: String(item && item.inFolder || 'changed') }))
+          : null,
+        trustedStagingHeadMoved: plain(output.trustedStagingHeadMoved, (value) => ({ sourceHead: String(value.sourceHead || ''), stagingHead: String(value.stagingHead || '') })),
+        verificationBinding: plain(output.verificationBinding, (value) => ({
+          status: String(value.status || ''), verifiedTree: value.verifiedTree ? String(value.verifiedTree) : null,
+          deliveredCommit: value.deliveredCommit ? String(value.deliveredCommit) : null, finalCommit: value.finalCommit ? String(value.finalCommit) : null, ci: value.ci ? String(value.ci) : null,
+        })),
+        pendingWrite: plain(output.pendingWrite, (value) => ({ tool: String(value.tool || ''), target: String(value.target || '').slice(0, 300) })),
+        repository: plain(output.repository, (value) => ({
+          remote: value.remote ? String(value.remote) : null, branch: value.branch ? String(value.branch) : null, head: String(value.head || ''),
+          upstream: value.upstream ? String(value.upstream) : null,
+          behind: typeof value.behind === 'number' ? value.behind : null, ahead: typeof value.ahead === 'number' ? value.ahead : null,
+        })),
+        // Usage only, for the cost receipt: no diff, summary or commands twice.
+        agentReceipt: plain(output.agentReceipt, (value) => ({
+          startedAt: value.startedAt ? String(value.startedAt) : undefined,
+          finishedAt: value.finishedAt ? String(value.finishedAt) : undefined,
+          modelUsageRecords: Array.isArray(value.modelUsageRecords) ? value.modelUsageRecords.slice(0, 500).map(usageRecord) : [],
+        })),
       },
     };
   }) : [];
@@ -309,6 +364,8 @@ function compactTask(raw) {
   return {
     id: toLocalId(String(task.id || '')),
     status: String(task.status || ''),
+    // Dispatched to stop before its first change (TheOne code/write-gate.ts).
+    writeGate: agentInput.writeGate === true,
     taskName: String(task.taskName || ''),
     objective: String(agentInput.objective || '').slice(0, 2000),
     target: String(agentInput.workspacePath || agentInput.repo || ''),
