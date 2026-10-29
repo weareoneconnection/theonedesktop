@@ -375,3 +375,43 @@ test('a local task reports whether its copy was kept, and who did the work', () 
   assert.equal(bare.steps[0].output.workspaceKept, false);
   assert.equal(bare.steps[0].output.engineCostUsd, null);
 });
+
+test('a local task keeps what the result card and the cost receipt read', () => {
+  // Leaving these out made every written-back local run read "still in the
+  // copy" and every local receipt "cost UNKNOWN" (2026-10-29).
+  const task = policy.compactTask({
+    id: 'T9abc', status: 'success', logs: [],
+    metadata: { normalizedTask: { steps: [{ action: 'code.workspace.analyze', input: { objective: 'fix it', workspacePath: '/w', writeGate: true } }] } },
+    steps: [{ stepId: 's', action: 'code.workspace.analyze', status: 'success', output: {
+      status: 'agent_run_awaiting_write_approval', lifecycleStatus: 'awaiting_approval', nextAction: 'approve_first_change',
+      workspaceMode: 'trusted-staging',
+      trustedStagingWriteback: { applied: true, changedFiles: ['a.ts'] },
+      trustedStagingConflicts: [{ path: 'b.ts', inFolder: 'changed' }],
+      verificationBinding: { status: 'covered', verifiedTree: 't', deliveredCommit: 'c', finalCommit: 'c', ci: null },
+      pendingWrite: { tool: 'edit_file', target: 'src/a.ts' },
+      repository: { remote: 'https://github.com/o/r.git', branch: 'main', head: 'abc', upstream: 'origin/main', behind: 1, ahead: 0 },
+      agentReceipt: { startedAt: '2026-10-29T12:00:00Z', finishedAt: '2026-10-29T12:10:00Z', diff: 'x'.repeat(10), modelUsageRecords: [{ provider: 'openai', providerResponseModel: 'gpt-5.6-luna', providerResponseId: 'resp_1', rawUsage: { input_tokens: 10 }, mappedUsage: { inputTokens: 3, cacheReadInputTokens: 7 }, secret: 'dropped' }] },
+    } }],
+  });
+  assert.equal(task.writeGate, true);
+  const output = task.steps[0].output;
+  assert.deepEqual(output.trustedStagingWriteback, { applied: true, changedFiles: ['a.ts'] });
+  assert.deepEqual(output.trustedStagingConflicts, [{ path: 'b.ts', inFolder: 'changed' }]);
+  assert.equal(output.verificationBinding.status, 'covered');
+  assert.deepEqual(output.pendingWrite, { tool: 'edit_file', target: 'src/a.ts' });
+  assert.equal(output.repository.behind, 1);
+  assert.equal(output.nextAction, 'approve_first_change');
+  assert.equal(output.agentReceipt.modelUsageRecords[0].mappedUsage.cacheReadInputTokens, 7);
+  assert.equal(output.agentReceipt.modelUsageRecords[0].secret, undefined);
+  assert.equal(output.agentReceipt.diff, undefined);
+});
+
+test('a local change can ask at its first change, only as one attempt', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
+  const gated = policy.buildLocalTaskInput({ objective: 'Fix the login bug please.', workspacePath: dir, writeGate: true }, [dir]);
+  assert.equal(gated.writeGate, true);
+  const several = policy.buildLocalTaskInput({ objective: 'Fix the login bug please.', workspacePath: dir, writeGate: true, isolate: true, attempts: 2 }, [dir]);
+  assert.equal(several.writeGate, undefined);
+  const analysis = policy.buildLocalTaskInput({ objective: 'Explain the login flow please.', workspacePath: dir, writeGate: true, analyze: true }, [dir]);
+  assert.equal(analysis.writeGate, undefined);
+});
