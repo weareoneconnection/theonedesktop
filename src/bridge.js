@@ -12,7 +12,7 @@ const { access, readFile } = require('node:fs/promises');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { dialog, ipcMain, Notification, shell, app } = require('electron');
-const { buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
+const { buildLocalDeliverInput, buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
 const { buildAttestation, loadOrCreateKey } = require('./attestation');
 const { installCodex } = require('./codex-install');
@@ -170,6 +170,21 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     const identity = currentIdentity(event);
     if (runtime.state.status !== 'ready') {
       throw new Error('本机 Code Runtime 未连接。请在 TheOne Desktop 设置中启动本机运行时后重试。');
+    }
+    // "提交推送": the runtime commits in the folder, pushes a branch with this
+    // Mac's own git credentials and opens a PR. No model runs, so no key is
+    // needed. The person's message is the approval; it is recorded as such.
+    if (body && body.deliver === true) {
+      const created = await runtime.request('POST', '/v1/actions/execute', {
+        action: 'code.workspace.deliver',
+        approvalMode: 'manual',
+        input: buildLocalDeliverInput(body, settings.workspaces),
+      }, { 'x-oneclaw-dispatch': 'background' });
+      const id = created && (created.id || (created.task && created.task.id));
+      if (!id) throw new Error('The local runtime did not return a task id.');
+      ownership.claim(String(id), identity);
+      await approveWhenAsked(String(id), 'theone-desktop: the person asked to commit and push');
+      return { taskId: toLocalId(id) };
     }
     // Codex brings its own account; TheOne on a GPT model needs the OpenAI
     // key; the rest call Anthropic and need that key.

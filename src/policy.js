@@ -263,6 +263,34 @@ function buildLocalTaskInput(body, pickedWorkspaces, taskCopiesRoot) {
   return input;
 }
 
+/**
+ * A request to commit and push a local folder's finished work. The runtime
+ * does it in the folder itself (OneClaw code.workspace.deliver), so only a
+ * folder the person opened qualifies — never one of the runtime's own copies.
+ */
+function buildLocalDeliverInput(body, pickedWorkspaces) {
+  const value = body && typeof body === 'object' ? body : {};
+  const workspacePath = String(value.workspacePath || '').trim();
+  if (!workspacePath || !path.isAbsolute(workspacePath)) throw new Error('Choose a folder on this computer.');
+  if (!(pickedWorkspaces || []).some((folder) => isInside(folder, workspacePath))) throw new Error('That folder was not opened in TheOne. Use "Open folder…" first.');
+  const input = { workspacePath };
+  const objective = String(value.objective || '').trim().slice(0, 2000);
+  if (objective) input.objective = objective;
+  const message = String(value.message || '').trim();
+  if (message) input.message = message.slice(0, 500);
+  const branch = String(value.branch || '').trim();
+  if (branch) {
+    if (!/^[A-Za-z0-9._/-]{1,100}$/.test(branch)) throw new Error('Not a valid branch name.');
+    input.branch = branch;
+  }
+  if (value.openPr === false) input.openPr = false;
+  const parentTaskId = String(value.parentTaskId || '').trim();
+  if (/^[A-Za-z0-9_:-]{4,80}$/.test(parentTaskId)) input.parentTaskId = parentTaskId;
+  const threadId = String(value.threadId || '').trim();
+  if (/^[A-Za-z0-9_:-]{6,80}$/.test(threadId)) input.threadId = threadId;
+  return input;
+}
+
 function plain(value, project) {
   return value && typeof value === 'object' && !Array.isArray(value) ? project(value) : null;
 }
@@ -345,6 +373,15 @@ function compactTask(raw) {
           deliveredCommit: value.deliveredCommit ? String(value.deliveredCommit) : null, finalCommit: value.finalCommit ? String(value.finalCommit) : null, ci: value.ci ? String(value.ci) : null,
         })),
         pendingWrite: plain(output.pendingWrite, (value) => ({ tool: String(value.tool || ''), target: String(value.target || '').slice(0, 300) })),
+        // A local delivery (code.workspace.deliver): what was committed and pushed where.
+        commit: output.commit ? String(output.commit) : undefined,
+        pushed: typeof output.pushed === 'boolean' ? output.pushed : undefined,
+        base: output.base ? String(output.base) : undefined,
+        compareUrl: output.compareUrl ? String(output.compareUrl) : undefined,
+        message: output.message ? String(output.message).slice(0, 2000) : undefined,
+        files: Array.isArray(output.files) ? output.files.slice(0, 200).map(String) : undefined,
+        blocked: Array.isArray(output.blocked) ? output.blocked.slice(0, 50).map(String) : undefined,
+        adoptedCopyCommits: Array.isArray(output.adoptedCopyCommits) ? output.adoptedCopyCommits.slice(0, 50).map(String) : undefined,
         repository: plain(output.repository, (value) => ({
           remote: value.remote ? String(value.remote) : null, branch: value.branch ? String(value.branch) : null, head: String(value.head || ''),
           upstream: value.upstream ? String(value.upstream) : null,
@@ -362,7 +399,7 @@ function compactTask(raw) {
     };
   }) : [];
   const planned = task.metadata && task.metadata.normalizedTask && Array.isArray(task.metadata.normalizedTask.steps) ? task.metadata.normalizedTask.steps : [];
-  const agentInput = (planned.find((step) => step && ['code.patch.apply', 'code.workspace.analyze'].includes(step.action)) || {}).input || {};
+  const agentInput = (planned.find((step) => step && ['code.patch.apply', 'code.workspace.analyze', 'code.workspace.deliver'].includes(step.action)) || {}).input || {};
   return {
     id: toLocalId(String(task.id || '')),
     status: String(task.status || ''),
@@ -511,6 +548,7 @@ function steeringMessage(value) {
 }
 
 module.exports = {
+  buildLocalDeliverInput,
   PRODUCTION_URL,
   OPENAI_MODELS,
   isOpenAIModel,
