@@ -416,3 +416,21 @@ test('a local change can ask at its first change, only as one attempt', () => {
   const analysis = policy.buildLocalTaskInput({ objective: 'Explain the login flow please.', workspacePath: dir, writeGate: true, analyze: true }, [dir]);
   assert.equal(analysis.writeGate, undefined);
 });
+
+test('a delivery runs only on a folder the person opened, never on a runtime copy', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deliver-'));
+  const input = policy.buildLocalDeliverInput({ workspacePath: dir, objective: '提交推送', branch: 'feature/v5', parentTaskId: 'local:abcd', openPr: false, analyze: true }, [dir]);
+  assert.deepEqual(input, { workspacePath: dir, objective: '提交推送', branch: 'feature/v5', openPr: false, parentTaskId: 'local:abcd' });
+  assert.throws(() => policy.buildLocalDeliverInput({ workspacePath: dir }, []), /not opened/);
+  assert.throws(() => policy.buildLocalDeliverInput({ workspacePath: dir, branch: 'x; rm -rf /' }, [dir]), /branch/);
+});
+
+test('a delivery result keeps what was pushed where', () => {
+  const task = policy.compactTask({ id: 't1', status: 'success', metadata: { normalizedTask: { steps: [{ action: 'code.workspace.deliver', input: { workspacePath: '/w', objective: '推送' } }] } }, steps: [{ stepId: 's', action: 'code.workspace.deliver', status: 'success', output: { status: 'local_delivery_delivered', branch: 'feature/v5', commit: 'abc', pushed: true, prUrl: 'https://github.com/a/b/pull/2', base: 'main', files: ['a.ts'], adoptedCopyCommits: ['55bc4c5 docs'] } }] });
+  const output = task.steps[0].output;
+  assert.equal(task.target, '/w');
+  assert.equal(output.pushed, true);
+  assert.equal(output.commit, 'abc');
+  assert.deepEqual(output.files, ['a.ts']);
+  assert.deepEqual(output.adoptedCopyCommits, ['55bc4c5 docs']);
+});
