@@ -4,7 +4,11 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const source = path.resolve(process.env.ONECLAW_DIR || '../oneclaw-v5-phase4');
+// Keep the packaged runtime aligned with the maintained OneClaw checkout used
+// by the coding conversation. CI/release may still provide ONECLAW_DIR for a
+// pinned source, but a local desktop package must not silently fall back to an
+// obsolete phase directory.
+const source = path.resolve(process.env.ONECLAW_DIR || '../oneclaw-local-acceptance-contract');
 const target = path.resolve('resources/oneclaw');
 // --os=win32 --cpu=x64 when packaging for another platform than this one:
 // npm then installs that platform's optional native packages, not this Mac's.

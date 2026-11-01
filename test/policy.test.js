@@ -297,19 +297,45 @@ test('a local task\'s cost is read off its output, with the reported figure kept
   assert.deepEqual(policy.usageRows(undefined), []);
 });
 
-test('the chat agent may only read, and only inside an opened folder', () => {
+test('the chat agent may use bounded governed tools, and only inside an opened folder', () => {
   const picked = ['/Users/me/code/app'];
   assert.deepEqual(policy.localAgentCall({ action: 'file.read', input: { path: '/Users/me/code/app/src/a.ts', limit: 50 } }, picked),
     { action: 'file.read', input: { path: '/Users/me/code/app/src/a.ts', limit: 50 } });
   assert.deepEqual(policy.localAgentCall({ action: 'file.list', input: { path: '/Users/me/code/app' } }, picked),
     { action: 'file.list', input: { path: '/Users/me/code/app' } });
-  // Writing, running and anything else is not on the list.
-  for (const action of ['file.write', 'shell.run', 'code.patch.apply', '']) {
+  assert.deepEqual(
+    policy.localAgentCall({ action: 'code.patch.apply', input: {
+      workspacePath: '/Users/me/code/app',
+      files: [{ path: 'src/a.ts', content: 'export const value = 1;\n' }],
+      shell: 'rm -rf /',
+      trustedStaging: false,
+    } }, picked),
+    { action: 'code.patch.apply', input: {
+      workspacePath: '/Users/me/code/app',
+      files: [{ path: 'src/a.ts', content: 'export const value = 1;\n' }],
+      trustedStaging: true,
+    } },
+  );
+  assert.deepEqual(
+    policy.localAgentCall({ action: 'code.test.run', input: { workspacePath: '/Users/me/code/app', scripts: ['test', 'nope', 'test'] } }, picked),
+    { action: 'code.test.run', input: { workspacePath: '/Users/me/code/app', scripts: ['test'] } },
+  );
+  assert.deepEqual(
+    policy.localAgentCall({ action: 'code.verify', input: { workspacePath: '/Users/me/code/app', command: 'rm -rf /' } }, picked),
+    { action: 'code.verify', input: { workspacePath: '/Users/me/code/app' } },
+  );
+  assert.deepEqual(
+    policy.localAgentCall({ action: 'code.impact.analyze', input: { workspacePath: '/Users/me/code/app', seeds: ['add', '', 'src/math.js'], shell: 'rm -rf /' } }, picked),
+    { action: 'code.impact.analyze', input: { workspacePath: '/Users/me/code/app', seeds: ['add', 'src/math.js'] } },
+  );
+  // Arbitrary writes, shells and unknown actions are not on the list.
+  for (const action of ['file.write', 'shell.run', '']) {
     assert.throws(() => policy.localAgentCall({ action, input: { path: '/Users/me/code/app/a' } }, picked), /does not run/);
   }
   // Outside the opened folders, and relative paths, are refused.
   assert.throws(() => policy.localAgentCall({ action: 'file.read', input: { path: '/Users/me/.ssh/id_rsa' } }, picked), /not inside a folder/);
   assert.throws(() => policy.localAgentCall({ action: 'file.read', input: { path: 'src/a.ts' } }, picked), /absolute path/);
+  assert.throws(() => policy.localAgentCall({ action: 'code.patch.apply', input: { workspacePath: '/Users/me/code/app', files: [{ path: '../.ssh/id_rsa', content: 'x' }] } }, picked), /stay inside/);
 });
 
 test('a search carries what a search needs, and nothing the page added', () => {
