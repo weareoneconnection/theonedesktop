@@ -499,25 +499,78 @@ function usageRows(items) {
 /**
  * What the chat agent may run on this Mac, and where.
  *
- * The agent itself runs in the cloud; these are the calls it hands back to
- * the app because only this machine can answer them. Reading is all it gets:
- * a write or a shell command from a page would be a remote execution hole,
- * and the folder gate is the same one every local task passes.
+ * The agent itself runs in the cloud; these are the bounded calls it hands
+ * back to the local OneClaw runtime. Direct code turns are deliberately not
+ * shell access: every payload is rebuilt here, patches are full-file and
+ * path-bounded, tests are an allowlist, and the runtime stages every write.
  */
-const LOCAL_AGENT_ACTIONS = new Set(['file.read', 'file.list', 'file.exists', 'file.search']);
+const LOCAL_AGENT_ACTIONS = new Set([
+  'file.read', 'file.list', 'file.exists', 'file.search',
+  'code.workspace.inspect', 'code.environment.doctor', 'code.impact.analyze', 'code.git.review',
+  'code.diff.prepare', 'code.patch.apply', 'code.test.run', 'code.verify',
+]);
+
+function directCodeFiles(raw) {
+  if (!Array.isArray(raw) || !raw.length || raw.length > 20) throw new Error('A code patch needs 1–20 files.');
+  let total = 0;
+  return raw.map((entry, index) => {
+    const item = entry && typeof entry === 'object' ? entry : {};
+    const relative = String(item.path || '').trim();
+    if (!relative || path.isAbsolute(relative) || relative.split(/[\\/]+/).includes('..')) {
+      throw new Error(`files[${index}].path must stay inside the opened folder.`);
+    }
+    const content = String(item.content ?? '');
+    if (content.length > 1024 * 1024) throw new Error(`files[${index}] is too large.`);
+    total += Buffer.byteLength(content, 'utf8');
+    if (total > 4 * 1024 * 1024) throw new Error('The code patch is too large.');
+    return { path: relative.replace(/\\/g, '/'), content };
+  });
+}
 
 function localAgentCall(body, pickedWorkspaces) {
   const value = body && typeof body === 'object' ? body : {};
   const action = String(value.action || '').trim();
   if (!LOCAL_AGENT_ACTIONS.has(action)) throw new Error(`This computer does not run "${action.slice(0, 40)}" for the chat agent.`);
   const input = value.input && typeof value.input === 'object' ? value.input : {};
-  const target = String(input.path || '').trim();
+  const isCodeAction = action.startsWith('code.');
+  const target = String(isCodeAction ? (input.workspacePath || input.path) : input.path || '').trim();
   if (!target || !path.isAbsolute(target)) throw new Error('A local read needs an absolute path.');
   if (!(pickedWorkspaces || []).some((folder) => isInside(folder, target))) {
     throw new Error('That path is not inside a folder opened in TheOne.');
   }
   const limit = Number(input.limit);
   const bounded = Number.isFinite(limit) && limit > 0 ? { limit: Math.min(Math.floor(limit), 2000) } : {};
+
+  if (isCodeAction) {
+    if (action === 'code.workspace.inspect' || action === 'code.environment.doctor' || action === 'code.git.review') {
+      return { action, input: { workspacePath: target } };
+    }
+    if (action === 'code.impact.analyze') {
+      const seeds = Array.isArray(input.seeds)
+        ? input.seeds.map((seed) => String(seed || '').trim()).filter(Boolean).slice(0, 20)
+        : [];
+      if (!seeds.length) throw new Error('Impact analysis needs at least one symbol or path seed.');
+      return { action, input: { workspacePath: target, seeds } };
+    }
+    if (action === 'code.verify') return { action, input: { workspacePath: target } };
+    if (action === 'code.test.run') {
+      const safeScripts = new Set(['check', 'typecheck', 'lint', 'test', 'build']);
+      const scripts = Array.isArray(input.scripts)
+        ? input.scripts.map((script) => String(script || '').trim()).filter((script, index, all) => safeScripts.has(script) && all.indexOf(script) === index).slice(0, 4)
+        : [];
+      return { action, input: { workspacePath: target, ...(scripts.length ? { scripts } : {}) } };
+    }
+    const files = directCodeFiles(input.files);
+    return {
+      action,
+      input: {
+        workspacePath: target,
+        files,
+        // Never let a web page opt out of protected staging for a local write.
+        ...(action === 'code.patch.apply' ? { trustedStaging: true } : {}),
+      },
+    };
+  }
 
   // Rebuilt field by field rather than passed through: whatever the page
   // sends, only what this action is defined to take reaches the runtime.
