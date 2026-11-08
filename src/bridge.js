@@ -64,7 +64,7 @@ async function inspectWorkspace(folder) {
   };
 }
 
-function registerBridge({ runtime, settings, getWindow, openSettings, onSettingsInApp, log, preview }) {
+function registerBridge({ runtime, settings, getWindow, openSettings, onSettingsInApp, log, preview, devServers }) {
   const guard = (handler) => async (event, ...args) => {
     const url = event.senderFrame ? event.senderFrame.url : '';
     if (!isAllowedOrigin(url)) {
@@ -115,6 +115,13 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     workspaces: settings.workspaces,
     identityIsolation: true,
   });
+
+  // The project's own dev server, started by a button on the preview toolbar (dev-server.js).
+  if (devServers) {
+    handle('desktop:devServerStart', (folder) => devServers.start(String(folder || '')));
+    handle('desktop:devServerStop', (folder) => devServers.stop(String(folder || '')));
+    handle('desktop:devServerState', (folder) => devServers.state(String(folder || '')));
+  }
 
   // The preview view (preview.js). Each call re-checks the origin through `handle`;
   // what may load is decided in the main process, never by the page.

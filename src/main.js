@@ -18,6 +18,7 @@ const { LocalRuntime } = require('./runtime');
 const { Settings } = require('./settings');
 const { registerBridge } = require('./bridge');
 const { createPreview } = require('./preview');
+const { createDevServers } = require('./dev-server');
 const { windowChrome } = require('./platform');
 
 const START_URL = startUrl();
@@ -64,6 +65,7 @@ let settings;
 let runtime;
 let updater;
 let preview;
+let devServers;
 let quitting = false;
 
 function send(event) {
@@ -340,7 +342,8 @@ app.whenReady().then(async () => {
   runtime = new LocalRuntime({ entry: runtimeEntry(), dataDir, log });
   if (devApiKey) settings.devApiKey = devApiKey;
   preview = createPreview({ getWindow: () => mainWindow, getWorkspaces: () => settings.workspaces, send, log });
-  registerBridge({ runtime, settings, getWindow: () => mainWindow, openSettings, onSettingsInApp: () => { settingsInApp = true; }, log, preview });
+  devServers = createDevServers({ getWorkspaces: () => settings.workspaces, send, log });
+  registerBridge({ runtime, settings, getWindow: () => mainWindow, openSettings, onSettingsInApp: () => { settingsInApp = true; }, log, preview, devServers });
   let lastUpdateStatus = '';
   updater = createUpdater({
     app,
@@ -370,6 +373,7 @@ app.on('before-quit', async (event) => {
   if (quitting || !runtime) return;
   event.preventDefault();
   quitting = true;
+  if (devServers) devServers.stopAll();
   await runtime.stop().catch(() => undefined);
   app.quit();
 });
