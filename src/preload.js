@@ -75,6 +75,15 @@ if (allowed.includes(window.location.origin)) {
       state: () => ipcRenderer.invoke('desktop:previewState'),
       close: () => ipcRenderer.invoke('desktop:previewClose'),
     },
+    /**
+     * The project's own dev server, started by a button the person pressed.
+     * State arrives through onEvent as { type: 'devserver', ... }.
+     */
+    devServer: {
+      start: (folder) => ipcRenderer.invoke('desktop:devServerStart', folder),
+      stop: (folder) => ipcRenderer.invoke('desktop:devServerStop', folder),
+      state: (folder) => ipcRenderer.invoke('desktop:devServerState', folder),
+    },
     /** Menu commands and runtime changes pushed from the app. Returns an unsubscribe. */
     onEvent: (listener) => {
       const wrapped = (_event, payload) => listener(payload);
