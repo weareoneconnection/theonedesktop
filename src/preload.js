@@ -57,6 +57,24 @@ if (allowed.includes(window.location.origin)) {
     reveal: (folder) => ipcRenderer.invoke('desktop:reveal', folder),
     notify: (title, body) => ipcRenderer.invoke('desktop:notify', title, body),
     setBadge: (count) => ipcRenderer.invoke('desktop:setBadge', count),
+    /**
+     * The preview view: a real browser view inside the window for the page the
+     * project serves (or a file in an opened folder). Its state arrives through
+     * onEvent as { type: 'preview', ... }.
+     */
+    preview: {
+      open: (input, rect) => ipcRenderer.invoke('desktop:previewOpen', input, rect),
+      setBounds: (rect) => ipcRenderer.invoke('desktop:previewBounds', rect),
+      setVisible: (flag) => ipcRenderer.invoke('desktop:previewVisible', flag),
+      reload: () => ipcRenderer.invoke('desktop:previewReload'),
+      stop: () => ipcRenderer.invoke('desktop:previewStop'),
+      back: () => ipcRenderer.invoke('desktop:previewBack'),
+      forward: () => ipcRenderer.invoke('desktop:previewForward'),
+      devtools: () => ipcRenderer.invoke('desktop:previewDevtools'),
+      capture: () => ipcRenderer.invoke('desktop:previewCapture'),
+      state: () => ipcRenderer.invoke('desktop:previewState'),
+      close: () => ipcRenderer.invoke('desktop:previewClose'),
+    },
     /** Menu commands and runtime changes pushed from the app. Returns an unsubscribe. */
     onEvent: (listener) => {
       const wrapped = (_event, payload) => listener(payload);

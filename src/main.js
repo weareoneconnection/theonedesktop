@@ -17,6 +17,7 @@ const { createUpdater } = require('./updater');
 const { LocalRuntime } = require('./runtime');
 const { Settings } = require('./settings');
 const { registerBridge } = require('./bridge');
+const { createPreview } = require('./preview');
 const { windowChrome } = require('./platform');
 
 const START_URL = startUrl();
@@ -62,6 +63,7 @@ function runtimeEntry() {
 let settings;
 let runtime;
 let updater;
+let preview;
 let quitting = false;
 
 function send(event) {
@@ -279,7 +281,11 @@ function createWindow() {
   // Only TheOne loads in this window. Everything else is the browser's job,
   // and never receives the desktop bridge.
   mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
-    if (isMainFrame && !isInPlace) settingsInApp = false;
+    if (isMainFrame && !isInPlace) {
+      settingsInApp = false;
+      // The page that drew the preview's toolbar is gone; so is the view.
+      if (preview) preview.close();
+    }
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const returnTo = signInStart(url);
@@ -305,7 +311,7 @@ function createWindow() {
   const initial = pendingDeepLink ? new URL(pendingDeepLink, START_ORIGIN).toString() : START_URL;
   pendingDeepLink = null;
   mainWindow.loadURL(initial);
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('closed', () => { mainWindow = null; if (preview) preview.close(); });
 }
 
 app.on('open-url', (event, link) => {
@@ -333,7 +339,8 @@ app.whenReady().then(async () => {
   settings = new Settings({ dataDir, safeStorage });
   runtime = new LocalRuntime({ entry: runtimeEntry(), dataDir, log });
   if (devApiKey) settings.devApiKey = devApiKey;
-  registerBridge({ runtime, settings, getWindow: () => mainWindow, openSettings, onSettingsInApp: () => { settingsInApp = true; }, log });
+  preview = createPreview({ getWindow: () => mainWindow, getWorkspaces: () => settings.workspaces, send, log });
+  registerBridge({ runtime, settings, getWindow: () => mainWindow, openSettings, onSettingsInApp: () => { settingsInApp = true; }, log, preview });
   let lastUpdateStatus = '';
   updater = createUpdater({
     app,

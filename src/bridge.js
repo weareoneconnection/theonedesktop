@@ -64,7 +64,7 @@ async function inspectWorkspace(folder) {
   };
 }
 
-function registerBridge({ runtime, settings, getWindow, openSettings, onSettingsInApp, log }) {
+function registerBridge({ runtime, settings, getWindow, openSettings, onSettingsInApp, log, preview }) {
   const guard = (handler) => async (event, ...args) => {
     const url = event.senderFrame ? event.senderFrame.url : '';
     if (!isAllowedOrigin(url)) {
@@ -115,6 +115,23 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     workspaces: settings.workspaces,
     identityIsolation: true,
   });
+
+  // The preview view (preview.js). Each call re-checks the origin through `handle`;
+  // what may load is decided in the main process, never by the page.
+  if (preview) {
+    const rectOf = (value) => (value && typeof value === 'object' ? { x: value.x, y: value.y, width: value.width, height: value.height } : null);
+    handle('desktop:previewOpen', (input, rect) => preview.open(String(input || ''), rectOf(rect)));
+    handle('desktop:previewBounds', (rect) => { preview.setBounds(rectOf(rect)); return { ok: true }; });
+    handle('desktop:previewVisible', (flag) => { preview.setVisible(Boolean(flag)); return { ok: true }; });
+    handle('desktop:previewReload', () => preview.reload());
+    handle('desktop:previewStop', () => preview.stop());
+    handle('desktop:previewBack', () => preview.back());
+    handle('desktop:previewForward', () => preview.forward());
+    handle('desktop:previewDevtools', () => preview.devtools());
+    handle('desktop:previewCapture', () => preview.capture());
+    handle('desktop:previewState', () => preview.state());
+    handle('desktop:previewClose', () => { preview.close(); return { ok: true }; });
+  }
 
   handle('desktop:info', async () => {
     let attestation = null;
