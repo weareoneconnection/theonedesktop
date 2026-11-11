@@ -284,6 +284,9 @@ function buildLocalDeliverInput(body, pickedWorkspaces) {
     input.branch = branch;
   }
   if (value.openPr === false) input.openPr = false;
+  // Push to the branch the folder is on (main included), no PR: only when
+  // the person asked for exactly that and approved it in TheOne.
+  if (value.pushCurrentBranch === true) input.pushCurrentBranch = true;
   const parentTaskId = String(value.parentTaskId || '').trim();
   if (/^[A-Za-z0-9_:-]{4,80}$/.test(parentTaskId)) input.parentTaskId = parentTaskId;
   const threadId = String(value.threadId || '').trim();

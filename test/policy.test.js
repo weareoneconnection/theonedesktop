@@ -460,3 +460,10 @@ test('a delivery result keeps what was pushed where', () => {
   assert.deepEqual(output.files, ['a.ts']);
   assert.deepEqual(output.adoptedCopyCommits, ['55bc4c5 docs']);
 });
+
+test('a delivery pushes to the current branch only when asked to', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deliver-direct-'));
+  assert.equal(policy.buildLocalDeliverInput({ workspacePath: dir, pushCurrentBranch: true }, [dir]).pushCurrentBranch, true);
+  assert.equal(policy.buildLocalDeliverInput({ workspacePath: dir }, [dir]).pushCurrentBranch, undefined);
+  assert.equal(policy.buildLocalDeliverInput({ workspacePath: dir, pushCurrentBranch: 'yes' }, [dir]).pushCurrentBranch, undefined);
+});
