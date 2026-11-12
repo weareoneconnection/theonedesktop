@@ -245,6 +245,8 @@ function buildLocalTaskInput(body, pickedWorkspaces, taskCopiesRoot) {
     return input;
   }
   if (value.isolate === true) input.isolate = true;
+  // Work in the person's folder itself (like Claude Code), not a copy.
+  if (value.inPlace === true && value.isolate !== true) input.inPlace = true;
   const attempts = value.attempts === undefined ? 1 : Number(value.attempts);
   if (!Number.isInteger(attempts) || attempts < 1 || attempts > 3) throw new Error('Attempts must be 1, 2 or 3.');
   if (attempts > 1) {

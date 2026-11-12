@@ -36,6 +36,8 @@ test('a local task must target a folder the person opened', () => {
   assert.throws(() => policy.buildLocalTaskInput({ objective: 'read my keys please', workspacePath: '/Users/me/.ssh' }, picked), /not opened/);
   assert.throws(() => policy.buildLocalTaskInput({ objective: 'escape the folder', workspacePath: '/Users/me/code/app/../../.ssh' }, picked), /not opened/);
   assert.throws(() => policy.buildLocalTaskInput({ objective: 'two tries in place', workspacePath: '/Users/me/code/app', attempts: 2 }, picked), /copy/);
+  assert.equal(policy.buildLocalTaskInput({ objective: 'fix it in my folder', workspacePath: '/Users/me/code/app', inPlace: true }, picked).inPlace, true);
+  assert.equal(policy.buildLocalTaskInput({ objective: 'fix it on a copy', workspacePath: '/Users/me/code/app', inPlace: true, isolate: true }, picked).inPlace, undefined);
 });
 
 test('a local task keeps its worktree when the app asks, for a thread to continue in', () => {
