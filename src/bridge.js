@@ -256,6 +256,10 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     if (!id) throw new Error('The local runtime did not return a task id.');
     ownership.claim(String(id), identity);
     if (firstChange) await approveWhenAsked(String(id), 'theone-desktop: approved at the first change');
+    // Approved on the conversation's card before dispatch (TheOne checks the
+    // grant): answer the runtime's own request once, so the person is not
+    // asked a second time on the task card.
+    else if (!read && body && body.approvedInChat === true) await approveWhenAsked(String(id), 'theone-desktop: approved in the conversation');
     return { taskId: toLocalId(id) };
   });
 
