@@ -12,7 +12,7 @@ const { access, readFile } = require('node:fs/promises');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { dialog, ipcMain, Notification, shell, app } = require('electron');
-const { buildLocalDeliverInput, buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
+const { buildLocalDeliverInput, buildLocalMergeInput, buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
 const { buildAttestation, loadOrCreateKey } = require('./attestation');
 const { installCodex } = require('./codex-install');
@@ -208,6 +208,20 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
       if (!id) throw new Error('The local runtime did not return a task id.');
       ownership.claim(String(id), identity);
       await approveWhenAsked(String(id), 'theone-desktop: the person asked to commit and push');
+      return { taskId: toLocalId(id) };
+    }
+    // "合并 PR": the runtime merges with this Mac's signed-in gh, after
+    // checking the PR's checks; the person's approval in TheOne is the approval.
+    if (body && body.merge === true) {
+      const created = await runtime.request('POST', '/v1/actions/execute', {
+        action: 'code.pr.merge',
+        approvalMode: 'manual',
+        input: buildLocalMergeInput(body, settings.workspaces),
+      }, { 'x-oneclaw-dispatch': 'background' });
+      const id = created && (created.id || (created.task && created.task.id));
+      if (!id) throw new Error('The local runtime did not return a task id.');
+      ownership.claim(String(id), identity);
+      await approveWhenAsked(String(id), 'theone-desktop: the person asked to merge the pull request');
       return { taskId: toLocalId(id) };
     }
     // Codex brings its own account; TheOne on a GPT model needs the OpenAI

@@ -294,6 +294,29 @@ function buildLocalDeliverInput(body, pickedWorkspaces) {
   return input;
 }
 
+/**
+ * "合并 PR": which PR, how, in a folder opened here. The runtime merges with
+ * this Mac's gh only when the checks passed and GitHub allows it.
+ */
+function buildLocalMergeInput(body, pickedWorkspaces) {
+  const value = body && typeof body === 'object' ? body : {};
+  const workspacePath = String(value.workspacePath || '').trim();
+  if (!workspacePath || !path.isAbsolute(workspacePath)) throw new Error('Choose a folder on this computer.');
+  if (!(pickedWorkspaces || []).some((folder) => isInside(folder, workspacePath))) throw new Error('That folder was not opened in TheOne. Use "Open folder…" first.');
+  const input = { workspacePath };
+  const pr = String(value.pr || '').trim();
+  if (pr) {
+    // A number, a branch or a github.com PR link; nothing that gh would read as a flag.
+    if (!/^(#?\d{1,7}|[A-Za-z0-9._/-]{1,100}|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d{1,7})$/.test(pr) || pr.startsWith('-')) throw new Error('Not a valid pull request.');
+    input.pr = pr;
+  }
+  if (value.method === 'merge' || value.method === 'rebase' || value.method === 'squash') input.method = value.method;
+  if (value.deleteBranch === true) input.deleteBranch = true;
+  const threadId = String(value.threadId || '').trim();
+  if (/^[A-Za-z0-9_:-]{6,80}$/.test(threadId)) input.threadId = threadId;
+  return input;
+}
+
 function plain(value, project) {
   return value && typeof value === 'object' && !Array.isArray(value) ? project(value) : null;
 }
@@ -385,6 +408,14 @@ function compactTask(raw) {
         files: Array.isArray(output.files) ? output.files.slice(0, 200).map(String) : undefined,
         blocked: Array.isArray(output.blocked) ? output.blocked.slice(0, 50).map(String) : undefined,
         adoptedCopyCommits: Array.isArray(output.adoptedCopyCommits) ? output.adoptedCopyCommits.slice(0, 50).map(String) : undefined,
+        // A PR merge (code.pr.merge): which PR, whether GitHub merged it, and why not.
+        number: typeof output.number === 'number' ? output.number : undefined,
+        title: output.title ? String(output.title).slice(0, 300) : undefined,
+        head: output.head ? String(output.head) : undefined,
+        mergeCommit: output.mergeCommit ? String(output.mergeCommit) : undefined,
+        method: output.method ? String(output.method) : undefined,
+        reason: output.reason ? String(output.reason) : undefined,
+        checks: Array.isArray(output.checks) ? output.checks.slice(0, 50).map((item) => ({ name: String(item && item.name || ''), state: String(item && item.state || '') })) : undefined,
         repository: plain(output.repository, (value) => ({
           remote: value.remote ? String(value.remote) : null, branch: value.branch ? String(value.branch) : null, head: String(value.head || ''),
           upstream: value.upstream ? String(value.upstream) : null,
@@ -605,6 +636,7 @@ function steeringMessage(value) {
 
 module.exports = {
   buildLocalDeliverInput,
+  buildLocalMergeInput,
   PRODUCTION_URL,
   OPENAI_MODELS,
   isOpenAIModel,
