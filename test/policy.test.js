@@ -467,3 +467,21 @@ test('a delivery pushes to the current branch only when asked to', () => {
   assert.equal(policy.buildLocalDeliverInput({ workspacePath: dir }, [dir]).pushCurrentBranch, undefined);
   assert.equal(policy.buildLocalDeliverInput({ workspacePath: dir, pushCurrentBranch: 'yes' }, [dir]).pushCurrentBranch, undefined);
 });
+
+test('a merge request names a PR safely, in an opened folder', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'merge-'));
+  assert.deepEqual(policy.buildLocalMergeInput({ workspacePath: dir, pr: '#2', method: 'squash' }, [dir]), { workspacePath: dir, pr: '#2', method: 'squash' });
+  assert.equal(policy.buildLocalMergeInput({ workspacePath: dir, pr: 'https://github.com/a/b/pull/12' }, [dir]).pr, 'https://github.com/a/b/pull/12');
+  assert.equal(policy.buildLocalMergeInput({ workspacePath: dir, method: 'force' }, [dir]).method, undefined);
+  assert.throws(() => policy.buildLocalMergeInput({ workspacePath: dir, pr: '--admin' }, [dir]));
+  assert.throws(() => policy.buildLocalMergeInput({ workspacePath: dir, pr: '2; rm -rf /' }, [dir]));
+  assert.throws(() => policy.buildLocalMergeInput({ workspacePath: dir }, []));
+});
+
+test('a merge result keeps the PR, the merge commit and why it was blocked', () => {
+  const task = policy.compactTask({ id: 't2', status: 'success', steps: [{ stepId: 's', action: 'code.pr.merge', status: 'success', output: { status: 'pr_merge_blocked', reason: 'checks_failed', number: 2, prUrl: 'https://github.com/a/b/pull/2', checks: [{ name: 'ui', state: 'failed' }], message: 'Checks failed: ui.' } }] });
+  const output = task.steps[0].output;
+  assert.equal(output.number, 2);
+  assert.equal(output.reason, 'checks_failed');
+  assert.deepEqual(output.checks, [{ name: 'ui', state: 'failed' }]);
+});
