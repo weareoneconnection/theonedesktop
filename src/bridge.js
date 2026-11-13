@@ -109,6 +109,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     version: app.getVersion(),
     platform: process.platform,
     runtime: runtime.state,
+    oneClaw: runtime.provenance || null,
     hasApiKey: settings.hasApiKey,
     hasOpenAIKey: settings.hasOpenAIKey,
     codexUsesApiKey: settings.codexUsesApiKey,
@@ -416,7 +417,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   };
   const restartRuntime = async () => announce(await runtime.restart(...settings.runtimeArgs()));
   const ops = {
-    get: () => ({ hasApiKey: settings.hasApiKey, hasOpenAIKey: settings.hasOpenAIKey, codexUsesApiKey: settings.codexUsesApiKey, runtime: runtime.state, workspaces: settings.workspaces, version: app.getVersion(), platform: process.platform }),
+    get: () => ({ hasApiKey: settings.hasApiKey, hasOpenAIKey: settings.hasOpenAIKey, codexUsesApiKey: settings.codexUsesApiKey, runtime: runtime.state, oneClaw: runtime.provenance || null, workspaces: settings.workspaces, version: app.getVersion(), platform: process.platform }),
     async setApiKey(value) {
       const key = String(value || '').trim();
       if (key && !looksLikeAnthropicKey(key)) throw new Error('That does not look like an Anthropic API key (sk-ant-…).');

@@ -239,6 +239,10 @@ function buildLocalTaskInput(body, pickedWorkspaces, taskCopiesRoot) {
   if (/^[A-Za-z0-9_:-]{6,80}$/.test(threadId)) input.threadId = threadId;
   const parentTaskId = String(value.parentTaskId || '').trim();
   if (/^[A-Za-z0-9_:-]{4,80}$/.test(parentTaskId)) input.parentTaskId = parentTaskId;
+  // TheOne deliberately chooses whether repository-owned automatic checks
+  // should run. Preserve that boolean across the desktop bridge instead of
+  // relying on whichever default happens to be bundled in this OneClaw.
+  if (typeof value.autoVerify === 'boolean') input.autoVerify = value.autoVerify;
   // An analysis reads and reports; the runtime runs it once, in a copy.
   if (value.analyze === true) {
     input.analyze = true;
@@ -323,6 +327,43 @@ function plain(value, project) {
   return value && typeof value === 'object' && !Array.isArray(value) ? project(value) : null;
 }
 
+/**
+ * The execution-result verification receipt is a protocol object, not prose.
+ * Keep its bounded, typed evidence intact for TheOne while dropping any
+ * runtime-specific fields that have not been reviewed for the desktop bridge.
+ */
+function compactVerification(value) {
+  return plain(value, (item) => {
+    const rawStatus = String(item.status || '').slice(0, 64);
+    const status = ['passed', 'failed', 'insufficient', 'not_run', 'not_applicable'].includes(rawStatus)
+      ? rawStatus
+      : 'not_run';
+    return {
+      status,
+      agentVerified: item.agentVerified === true,
+      explicitVerifyPassed: typeof item.explicitVerifyPassed === 'boolean' ? item.explicitVerifyPassed : null,
+      automaticVerifyPassed: typeof item.automaticVerifyPassed === 'boolean' ? item.automaticVerifyPassed : null,
+      acceptancePassed: typeof item.acceptancePassed === 'boolean' ? item.acceptancePassed : null,
+      gap: item.gap == null ? null : String(item.gap).slice(0, 200),
+      noGit: item.noGit === true,
+      acceptanceReason: item.acceptanceReason == null ? null : String(item.acceptanceReason).slice(0, 200),
+      acceptanceSummary: item.acceptanceSummary == null ? null : String(item.acceptanceSummary).slice(0, 1000),
+      acceptanceAssurance: ['independent', 'runtime_checks'].includes(item.acceptanceAssurance) ? item.acceptanceAssurance : null,
+    };
+  });
+}
+
+function compactChangedFiles(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 200).flatMap((item) => {
+    if (typeof item === 'string') return [item.slice(0, 1000)];
+    if (!item || typeof item !== 'object') return [];
+    const path = String(item.path || '').slice(0, 1000);
+    if (!path) return [];
+    return [{ path, ...(typeof item.changed === 'boolean' ? { changed: item.changed } : {}) }];
+  });
+}
+
 /** One model call's usage, the fields TheOne's cost ledger reads. */
 function usageRecord(record) {
   const value = record && typeof record === 'object' ? record : {};
@@ -349,9 +390,15 @@ function compactTask(raw) {
       stepId: String(step.stepId || ''),
       action: String(step.action || ''),
       status: String(step.status || ''),
+      startedAt: step.startedAt ? String(step.startedAt) : undefined,
+      finishedAt: step.finishedAt ? String(step.finishedAt) : undefined,
       output: {
+        schemaVersion: output.schemaVersion ? String(output.schemaVersion) : undefined,
+        taskId: output.taskId ? toLocalId(String(output.taskId).replace(/^local:/, '')) : undefined,
+        taskMode: output.taskMode ? String(output.taskMode) : undefined,
         status: String(output.status || ''),
         verified: output.verified === true,
+        verification: compactVerification(output.verification),
         verifyPassed: typeof output.verifyPassed === 'boolean' ? output.verifyPassed : null,
         // An analysis task's summary is its report.
         summary: String(output.summary || '').slice(0, 30000),
@@ -370,7 +417,7 @@ function compactTask(raw) {
         engineRequested: String(output.engineRequested || ''),
         engineModel: output.engineModel ? String(output.engineModel) : null,
         engineCostUsd: typeof output.engineCostUsd === 'number' ? output.engineCostUsd : null,
-        changedFiles: Array.isArray(output.changedFiles) ? output.changedFiles.slice(0, 200) : [],
+        changedFiles: compactChangedFiles(output.changedFiles),
         repo: String(output.repo || ''),
         prUrl: String(output.prUrl || ''),
         branch: String(output.branch || ''),
@@ -384,7 +431,12 @@ function compactTask(raw) {
         // in the copy", and every local receipt "cost UNKNOWN".
         lifecycleStatus: output.lifecycleStatus ? String(output.lifecycleStatus) : undefined,
         failureClass: output.failureClass ? String(output.failureClass) : null,
+        retryable: typeof output.retryable === 'boolean' ? output.retryable : null,
         nextAction: output.nextAction ? String(output.nextAction) : undefined,
+        acceptancePassed: typeof output.acceptancePassed === 'boolean' ? output.acceptancePassed : null,
+        acceptanceReason: output.acceptanceReason == null ? null : String(output.acceptanceReason).slice(0, 200),
+        acceptanceSummary: output.acceptanceSummary == null ? null : String(output.acceptanceSummary).slice(0, 500),
+        acceptanceAssurance: ['independent', 'runtime_checks'].includes(output.acceptanceAssurance) ? output.acceptanceAssurance : null,
         sourceWorkspacePath: output.sourceWorkspacePath ? String(output.sourceWorkspacePath) : undefined,
         dirtyFiles: Array.isArray(output.dirtyFiles) ? output.dirtyFiles.slice(0, 50).map(String) : undefined,
         trustedStagingWriteback: plain(output.trustedStagingWriteback, (value) => ({
@@ -445,6 +497,9 @@ function compactTask(raw) {
     objective: String(agentInput.objective || '').slice(0, 2000),
     target: String(agentInput.workspacePath || agentInput.repo || ''),
     createdAt: String(task.createdAt || ''),
+    startedAt: task.startedAt ? String(task.startedAt) : '',
+    completedAt: task.completedAt ? String(task.completedAt) : '',
+    ...(task.updatedAt ? { updatedAt: String(task.updatedAt) } : {}),
     logs,
     steps,
   };

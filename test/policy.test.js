@@ -58,6 +58,64 @@ test('compact task keeps what the task view shows and marks the id local', () =>
   assert.equal(task.steps[0].output.keptAttempt, 2);
 });
 
+test('compact task preserves bounded structured lifecycle and verification evidence', () => {
+  const task = policy.compactTask({
+    id: 'T2abc', status: 'failed', logs: [],
+    createdAt: '2026-11-13T10:00:00.000Z',
+    startedAt: '2026-11-13T10:00:01.000Z',
+    completedAt: '2026-11-13T10:05:00.000Z',
+    steps: [{
+      stepId: 's', action: 'code.patch.apply', status: 'failed',
+      startedAt: '2026-11-13T10:00:01.000Z', finishedAt: '2026-11-13T10:05:00.000Z',
+      output: {
+        schemaVersion: 'theone.code_execution_result.v2', taskId: 'T2abc', taskMode: 'change',
+        lifecycleStatus: 'completed_unverified', verified: false,
+        verification: {
+          status: 'insufficient', agentVerified: true, explicitVerifyPassed: true,
+          automaticVerifyPassed: null, acceptancePassed: null, gap: 'no_git_no_check', noGit: true,
+          acceptanceReason: 'capability_gap', acceptanceSummary: 'acceptance_contract_has_no_runtime_command',
+          acceptanceAssurance: 'runtime_checks',
+          secret: 'drop me',
+        },
+        failureClass: null, retryable: true, nextAction: 'run_verification_and_resume',
+        changedFiles: [{ path: 'src/a.ts', changed: true, secret: 'drop me' }], diffStat: '1 file changed',
+        acceptancePassed: null, acceptanceReason: 'capability_gap',
+        acceptanceSummary: 'acceptance_contract_has_no_runtime_command', acceptanceAssurance: 'runtime_checks',
+      },
+    }],
+  });
+
+  assert.equal(task.status, 'failed');
+  assert.equal(task.createdAt, '2026-11-13T10:00:00.000Z');
+  assert.equal(task.startedAt, '2026-11-13T10:00:01.000Z');
+  assert.equal(task.completedAt, '2026-11-13T10:05:00.000Z');
+  assert.equal('updatedAt' in task, false);
+  assert.equal(task.steps[0].startedAt, '2026-11-13T10:00:01.000Z');
+  assert.equal(task.steps[0].finishedAt, '2026-11-13T10:05:00.000Z');
+  assert.deepEqual(task.steps[0].output.verification, {
+    status: 'insufficient', agentVerified: true, explicitVerifyPassed: true,
+    automaticVerifyPassed: null, acceptancePassed: null, gap: 'no_git_no_check', noGit: true,
+    acceptanceReason: 'capability_gap', acceptanceSummary: 'acceptance_contract_has_no_runtime_command',
+    acceptanceAssurance: 'runtime_checks',
+  });
+  assert.equal(task.steps[0].output.verification.secret, undefined);
+  assert.equal(task.steps[0].output.lifecycleStatus, 'completed_unverified');
+  assert.equal(task.steps[0].output.retryable, true);
+  assert.deepEqual(task.steps[0].output.changedFiles, [{ path: 'src/a.ts', changed: true }]);
+  assert.equal(task.steps[0].output.acceptanceAssurance, 'runtime_checks');
+});
+
+test('compact task fails closed on an unknown verification status', () => {
+  const task = policy.compactTask({
+    id: 'T3abc', status: 'completed', logs: [],
+    steps: [{ stepId: 's', action: 'code.patch.apply', status: 'completed', output: {
+      verification: { status: 'trust_me', secret: 'drop me' },
+    } }],
+  });
+  assert.equal(task.steps[0].output.verification.status, 'not_run');
+  assert.equal(task.steps[0].output.verification.secret, undefined);
+});
+
 test('PATH merges the login shell first, without duplicates', () => {
   assert.equal(policy.mergePath('/opt/homebrew/bin:/usr/bin', '/usr/bin:/bin', policy.FALLBACK_PATH).split(':')[0], '/opt/homebrew/bin');
   assert.equal(new Set(policy.mergePath('/a:/a', '/a').split(':')).size, 1);
@@ -122,6 +180,17 @@ test('an analysis task asks the runtime for a report, not a change', () => {
   );
   // A folder the person never opened is still refused.
   assert.throws(() => buildLocalTaskInput({ objective: '分析这个目录的结构', workspacePath: '/etc', analyze: true }, picked));
+});
+
+test('a local task preserves TheOne\'s explicit automatic verification choice', () => {
+  const { buildLocalTaskInput } = require('../src/policy');
+  const picked = ['/Users/me/app'];
+  assert.equal(buildLocalTaskInput({
+    objective: '修复登录回归并运行仓库检查', workspacePath: '/Users/me/app', autoVerify: true,
+  }, picked).autoVerify, true);
+  assert.equal(buildLocalTaskInput({
+    objective: '只分析登录流程和测试覆盖', workspacePath: '/Users/me/app', analyze: true, autoVerify: false,
+  }, picked).autoVerify, false);
 });
 
 test('checks a note sent to a running task', () => {

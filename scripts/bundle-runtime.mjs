@@ -1,6 +1,7 @@
 // Copies the OneClaw runtime into resources/oneclaw for packaging:
 // the compiled dist/, package.json, and production dependencies only.
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -8,7 +9,7 @@ import path from 'node:path';
 // by the coding conversation. CI/release may still provide ONECLAW_DIR for a
 // pinned source, but a local desktop package must not silently fall back to an
 // obsolete phase directory.
-const source = path.resolve(process.env.ONECLAW_DIR || '../oneclaw-local-acceptance-contract');
+const source = path.resolve(process.env.ONECLAW_DIR || '../oneclaw-v5-phase4');
 const target = path.resolve('resources/oneclaw');
 // --os=win32 --cpu=x64 when packaging for another platform than this one:
 // npm then installs that platform's optional native packages, not this Mac's.
@@ -25,6 +26,25 @@ fs.cpSync(path.join(source, 'dist'), path.join(target, 'dist'), {
 for (const file of ['package.json', 'package-lock.json']) {
   if (fs.existsSync(path.join(source, file))) fs.copyFileSync(path.join(source, file), path.join(target, file));
 }
+
+const gitText = (args) => {
+  try { return String(execFileSync('git', args, { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })).trim(); }
+  catch { return ''; }
+};
+
+const treeDigest = (root) => {
+  const hash = crypto.createHash('sha256');
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .flatMap((entry) => entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]);
+  for (const file of walk(root)) {
+    hash.update(path.relative(root, file));
+    hash.update('\0');
+    hash.update(fs.readFileSync(file));
+    hash.update('\0');
+  }
+  return `sha256:${hash.digest('hex')}`;
+};
 // The runtime ships inside a public installer, and its source repository is
 // private. Every script is minified and obfuscated so the shipped code is not
 // readable at a glance. This raises the cost of reading it; it does not stop
@@ -66,4 +86,19 @@ if (process.env.ONECLAW_OBFUSCATE !== '0') {
 // Never ship an env file: the app builds the runtime's environment itself.
 for (const leftover of ['.env', '.env.local', '.env.example']) fs.rmSync(path.join(target, leftover), { force: true });
 execFileSync('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', ...platformFlags], { cwd: target, stdio: 'inherit' });
-console.log(`runtime bundled into ${target}${platformFlags.length ? ` (${platformFlags.join(' ')})` : ''}`);
+const sourcePackage = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));
+const provenance = {
+  schemaVersion: 'theone.desktop_runtime_provenance.v1',
+  oneClawVersion: String(sourcePackage.version || ''),
+  oneClawCommit: gitText(['rev-parse', 'HEAD']) || null,
+  // Include untracked build inputs but ignore unrelated local artifacts such
+  // as eval results. A package made from an uncommitted source/dist/config
+  // tree must never advertise itself as a clean commit build.
+  sourceDirty: Boolean(gitText([
+    'status', '--short', '--untracked-files=all', '--',
+    'src', 'dist', 'package.json', 'package-lock.json', 'tsconfig.json',
+  ])),
+  distDigest: treeDigest(path.join(target, 'dist')),
+};
+fs.writeFileSync(path.join(target, 'runtime-provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`);
+console.log(`runtime bundled into ${target}${platformFlags.length ? ` (${platformFlags.join(' ')})` : ''}; commit=${provenance.oneClawCommit || 'unknown'} dirty=${provenance.sourceDirty} digest=${provenance.distDigest}`);
