@@ -14,10 +14,11 @@
     "e2e": "node test-e2e/run.mjs",
     "test:preview": "electron test-e2e/preview.cjs",
     "dist:mac": "npm run bundle:runtime && electron-builder --mac --arm64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false",
-    "release:mac": "npm run bundle:runtime && electron-builder --mac --arm64 --publish always",
+    "release:mac": "npm run bundle:runtime && electron-builder --mac --arm64 --publish always && node scripts/verify-release-assets.mjs --platform mac --remote",
     "bundle:runtime:win": "node scripts/bundle-runtime.mjs --os=win32 --cpu=x64",
     "dist:win": "npm run bundle:runtime:win && electron-builder --win --x64 --publish never",
-    "release:win": "npm run bundle:runtime:win && electron-builder --win --x64 --publish always"
+    "release:win": "npm run bundle:runtime:win && electron-builder --win --x64 --publish always && node scripts/verify-release-assets.mjs --platform win --remote",
+    "verify:release-assets": "node scripts/verify-release-assets.mjs"
   },
   "build": {
     "appId": "org.weareoneconnection.theone",

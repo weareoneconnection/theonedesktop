@@ -57,10 +57,11 @@ function loginShellPath() {
 }
 
 class LocalRuntime {
-  constructor({ entry, dataDir, log }) {
+  constructor({ entry, dataDir, log, provenance = null }) {
     this.entry = entry;
     this.dataDir = dataDir;
     this.log = log || (() => {});
+    this.provenance = provenance;
     this.child = null;
     this.port = 0;
     this.token = '';

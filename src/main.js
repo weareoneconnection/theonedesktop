@@ -15,6 +15,7 @@ const path = require('node:path');
 const { authLinkCode, deepLinkPath, isAllowedOrigin, signInPair, signInStart, startUrl, updateMenuItem } = require('./policy');
 const { createUpdater } = require('./updater');
 const { LocalRuntime } = require('./runtime');
+const { loadRuntimeProvenance } = require('./runtime-provenance');
 const { Settings } = require('./settings');
 const { registerBridge } = require('./bridge');
 const { createPreview } = require('./preview');
@@ -339,7 +340,9 @@ app.on('second-instance', (_event, argv) => {
 
 app.whenReady().then(async () => {
   settings = new Settings({ dataDir, safeStorage });
-  runtime = new LocalRuntime({ entry: runtimeEntry(), dataDir, log });
+  const entry = runtimeEntry();
+  const provenance = loadRuntimeProvenance({ entry, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath });
+  runtime = new LocalRuntime({ entry, dataDir, log, provenance });
   if (devApiKey) settings.devApiKey = devApiKey;
   preview = createPreview({ getWindow: () => mainWindow, getWorkspaces: () => settings.workspaces, send, log });
   devServers = createDevServers({ getWorkspaces: () => settings.workspaces, send, log });
