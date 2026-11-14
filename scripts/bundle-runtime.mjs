@@ -1,9 +1,12 @@
 // Copies the OneClaw runtime into resources/oneclaw for packaging:
 // the compiled dist/, package.json, and production dependencies only.
 import { execFileSync } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import runtimeProvenance from '../src/runtime-provenance.js';
+import { assertReleaseSource } from './runtime-release-source.mjs';
+
+const { digestRuntimeTree } = runtimeProvenance;
 
 // Keep the packaged runtime aligned with the maintained OneClaw checkout used
 // by the coding conversation. CI/release may still provide ONECLAW_DIR for a
@@ -11,10 +14,30 @@ import path from 'node:path';
 // obsolete phase directory.
 const source = path.resolve(process.env.ONECLAW_DIR || '../oneclaw-v5-phase4');
 const target = path.resolve('resources/oneclaw');
+const releaseMode = process.argv.includes('--release');
 // --os=win32 --cpu=x64 when packaging for another platform than this one:
 // npm then installs that platform's optional native packages, not this Mac's.
 const platformFlags = process.argv.slice(2).filter((arg) => /^--(os|cpu)=[a-z0-9]+$/.test(arg));
 
+const gitText = (args) => {
+  try { return String(execFileSync('git', args, { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })).trim(); }
+  catch { return ''; }
+};
+const sourceStatus = () => gitText([
+  'status', '--short', '--untracked-files=all', '--',
+  'src', 'contracts', 'package.json', 'package-lock.json', 'tsconfig.json',
+]);
+const actualCommit = gitText(['rev-parse', 'HEAD']);
+assertReleaseSource({
+  releaseMode,
+  expectedCommit: process.env.ONECLAW_RELEASE_COMMIT,
+  actualCommit,
+  sourceDirty: Boolean(sourceStatus()),
+});
+
+// TypeScript does not remove files that no longer have a source counterpart.
+// A release must never carry stale code left by an earlier checkout/build.
+fs.rmSync(path.join(source, 'dist'), { recursive: true, force: true });
 execFileSync('npm', ['run', 'build'], { cwd: source, stdio: 'inherit' });
 fs.rmSync(target, { recursive: true, force: true });
 fs.mkdirSync(target, { recursive: true });
@@ -27,24 +50,6 @@ for (const file of ['package.json', 'package-lock.json']) {
   if (fs.existsSync(path.join(source, file))) fs.copyFileSync(path.join(source, file), path.join(target, file));
 }
 
-const gitText = (args) => {
-  try { return String(execFileSync('git', args, { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })).trim(); }
-  catch { return ''; }
-};
-
-const treeDigest = (root) => {
-  const hash = crypto.createHash('sha256');
-  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .flatMap((entry) => entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]);
-  for (const file of walk(root)) {
-    hash.update(path.relative(root, file));
-    hash.update('\0');
-    hash.update(fs.readFileSync(file));
-    hash.update('\0');
-  }
-  return `sha256:${hash.digest('hex')}`;
-};
 // The runtime ships inside a public installer, and its source repository is
 // private. Every script is minified and obfuscated so the shipped code is not
 // readable at a glance. This raises the cost of reading it; it does not stop
@@ -90,15 +95,13 @@ const sourcePackage = JSON.parse(fs.readFileSync(path.join(source, 'package.json
 const provenance = {
   schemaVersion: 'theone.desktop_runtime_provenance.v1',
   oneClawVersion: String(sourcePackage.version || ''),
-  oneClawCommit: gitText(['rev-parse', 'HEAD']) || null,
+  oneClawCommit: actualCommit || null,
   // Include untracked build inputs but ignore unrelated local artifacts such
   // as eval results. A package made from an uncommitted source/dist/config
   // tree must never advertise itself as a clean commit build.
-  sourceDirty: Boolean(gitText([
-    'status', '--short', '--untracked-files=all', '--',
-    'src', 'dist', 'package.json', 'package-lock.json', 'tsconfig.json',
-  ])),
-  distDigest: treeDigest(path.join(target, 'dist')),
+  sourceDirty: Boolean(sourceStatus()),
+  releasePinned: releaseMode,
+  distDigest: digestRuntimeTree(path.join(target, 'dist')),
 };
 fs.writeFileSync(path.join(target, 'runtime-provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`);
 console.log(`runtime bundled into ${target}${platformFlags.length ? ` (${platformFlags.join(' ')})` : ''}; commit=${provenance.oneClawCommit || 'unknown'} dirty=${provenance.sourceDirty} digest=${provenance.distDigest}`);
