@@ -79,6 +79,13 @@ class LocalRuntime {
     this.apiKey = apiKey || '';
     this.openaiKey = openaiKey || '';
     this.codexUsesKey = Boolean(codexUsesKey);
+    // Development and explicit custom entries have no provenance object. The
+    // default packaged entry always has one and must verify: a missing,
+    // unreadable or deleted receipt must not turn integrity checking off.
+    if (this.provenance && this.provenance.integrity !== 'verified') {
+      this.state = { status: 'error', error: 'Packaged OneClaw code failed its digest check.' };
+      return this.state;
+    }
     const codex = codexEnv({ openaiKey: this.openaiKey, codexUsesKey: this.codexUsesKey, dataDir: this.dataDir });
     // Signed in again from the current key on every start, so a changed key
     // is never left behind in an old login.

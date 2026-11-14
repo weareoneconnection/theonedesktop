@@ -364,18 +364,200 @@ function compactChangedFiles(value) {
   });
 }
 
+function boundedString(value, max = 1000) {
+  if (typeof value !== 'string') return undefined;
+  const text = value.trim();
+  return text ? text.slice(0, max) : undefined;
+}
+
+function nullableString(value, max = 1000) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return boundedString(value, max) || null;
+}
+
+function finiteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function compactDigest(value, nullable = false) {
+  if (nullable && value === null) return null;
+  const text = boundedString(value, 80);
+  return text && /^sha256:[a-f0-9]{64}$/.test(text) ? text : nullable ? null : '';
+}
+
+// Provider usage payloads are evidence, but they are not a safe place for
+// prompts or completions. Keep only reviewed counters. In particular, fuzzy
+// matches such as `output_text` and `input_prompt` must never cross the bridge.
+const USAGE_COUNTER_FIELDS = new Set([
+  'input_tokens', 'output_tokens', 'total_tokens', 'prompt_tokens', 'completion_tokens',
+  'cached_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens',
+  'cache_write_input_tokens', 'cache_write_tokens', 'cache_creation_5m_input_tokens',
+  'cache_creation_1h_input_tokens', 'reasoning_tokens', 'audio_tokens',
+  'accepted_prediction_tokens', 'rejected_prediction_tokens',
+  'prompt_eval_count', 'eval_count',
+  'inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens',
+]);
+const USAGE_DETAIL_FIELDS = new Set(['input_tokens_details', 'output_tokens_details', 'cache_creation']);
+
+function compactRawUsage(value, depth = 0) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 2) return null;
+  const output = {};
+  for (const key of USAGE_COUNTER_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    const item = value[key];
+    if (typeof item === 'number' && Number.isFinite(item) && item >= 0) output[key] = item;
+  }
+  for (const key of USAGE_DETAIL_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    const nested = compactRawUsage(value[key], depth + 1);
+    if (nested && Object.keys(nested).length) output[key] = nested;
+  }
+  return output;
+}
+
+const PROVIDER_RECEIPT_STRING_FIELDS = [
+  'provider', 'requestedChannel', 'resolvedChannel', 'actualChannel',
+  'gatewayRequestId', 'upstreamProvider', 'providerIdentityStatus',
+  'requestedModel', 'resolvedModel', 'providerResponseModel', 'gatewayResponseModel',
+  'providerResponseId', 'providerRequestId', 'providerEndpoint', 'actualEngine',
+  'actualModel', 'invocationId', 'startedAt', 'completedAt', 'billingStatus',
+];
+const PROVIDER_RECEIPT_NUMBER_FIELDS = ['retryCount', 'maxRetries', 'timeoutMs', 'activeMs', 'costUsd'];
+const PROVIDER_FAILURE_KINDS = new Set(['auth_invalid', 'rate_limited', 'model_unavailable', 'timeout', 'cancelled', 'unknown']);
+const PROVIDER_FAILURE_SOURCES = new Set(['provider', 'gateway', 'client']);
+
+function compactProviderEndpoint(value) {
+  const text = boundedString(value, 1000);
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString().slice(0, 1000);
+  } catch {
+    return null;
+  }
+}
+
+function compactProviderFailure(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!PROVIDER_FAILURE_KINDS.has(value.kind) || !PROVIDER_FAILURE_SOURCES.has(value.source)) return null;
+  const statusCode = Number.isInteger(value.statusCode) && value.statusCode >= 100 && value.statusCode <= 599
+    ? value.statusCode : null;
+  const retryAfterMs = Number.isInteger(value.retryAfterMs) && value.retryAfterMs >= 0 && value.retryAfterMs <= 86_400_000
+    ? value.retryAfterMs : null;
+  return {
+    kind: value.kind,
+    source: value.source,
+    provider: nullableString(value.provider, 80) ?? null,
+    retryable: ['rate_limited', 'timeout', 'cancelled', 'unknown'].includes(value.kind),
+    statusCode,
+    code: nullableString(value.code, 120) ?? null,
+    message: nullableString(value.message, 500) ?? null,
+    requestId: nullableString(value.requestId, 200) ?? null,
+    retryAfterMs,
+  };
+}
+
+/** A provider proof is evidence, not a passthrough for the provider response. */
+function compactProviderReceipt(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const output = {};
+  for (const key of PROVIDER_RECEIPT_STRING_FIELDS) {
+    if (!(key in value)) continue;
+    const text = key === 'providerEndpoint' ? compactProviderEndpoint(value[key]) : nullableString(value[key], 300);
+    output[key] = text;
+  }
+  for (const key of PROVIDER_RECEIPT_NUMBER_FIELDS) {
+    if (key in value) output[key] = finiteNumber(value[key]);
+  }
+  for (const key of ['timedOut', 'cancelled']) if (key in value) output[key] = value[key] === true;
+  if ('rawUsage' in value) output.rawUsage = compactRawUsage(value.rawUsage);
+  if ('mappedUsage' in value) output.mappedUsage = compactRawUsage(value.mappedUsage);
+  if ('failure' in value) output.failure = compactProviderFailure(value.failure);
+  return output;
+}
+
+function compactAgentUsage(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const output = {};
+  for (const key of ['inputTokens', 'outputTokens', 'llmCalls', 'cacheCreationInputTokens', 'cacheReadInputTokens']) {
+    if (typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] >= 0) output[key] = value[key];
+  }
+  return output;
+}
+
+function compactAttempts(value) {
+  if (!Array.isArray(value)) return null;
+  return value.slice(0, 3).map((raw) => {
+    const item = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    return {
+      attempt: Number(item.attempt) || 0,
+      engine: String(item.engine || '').slice(0, 100),
+      model: item.model == null ? null : String(item.model).slice(0, 200),
+      status: String(item.status || '').slice(0, 100),
+      verifyPassed: typeof item.verifyPassed === 'boolean' ? item.verifyPassed : null,
+      autoVerifyPassed: typeof item.autoVerifyPassed === 'boolean' ? item.autoVerifyPassed : null,
+      acceptancePassed: typeof item.acceptancePassed === 'boolean' ? item.acceptancePassed : null,
+      acceptanceReason: item.acceptanceReason == null ? null : String(item.acceptanceReason).slice(0, 200),
+      timedOut: item.timedOut === true,
+      settled: item.settled !== false,
+      selfVerified: item.selfVerified === true,
+      diffLines: Number(item.diffLines) || 0,
+      llmUsage: Number(item.llmUsage) || 0,
+      costUsd: finiteNumber(item.costUsd),
+      costEstimated: item.costEstimated === true,
+      durationMs: Number(item.durationMs) || 0,
+      workspaceKept: item.workspaceKept === true,
+    };
+  });
+}
+
+function compactPreview(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (value.error) return { error: String(value.error).slice(0, 500) };
+  const shot = (raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const at = String(raw.at || '').slice(0, 100);
+    if (raw.ok === true && typeof raw.image === 'string' && /^data:image\/(?:jpeg|png|webp);base64,/.test(raw.image) && raw.image.length <= 2_000_000) {
+      return { ok: true, image: raw.image, at };
+    }
+    return { ok: false, error: String(raw.error || (raw.ok === true ? 'The screenshot was too large to show.' : 'No screenshot.')).slice(0, 800), at };
+  };
+  return {
+    url: String(value.url || '').slice(0, 500),
+    command: String(value.command || '').slice(0, 500),
+    before: shot(value.before),
+    after: shot(value.after),
+  };
+}
+
+const FAILURE_REASONS = new Set([
+  'passed', 'test_failure', 'native_failure', 'timeout', 'fallback_unavailable',
+  'fallback_verify_failure', 'capability_gap', 'security_rejection', 'cancelled',
+  'budget_exceeded', 'explicit_verification_missing_or_failed', 'repository_check_failed',
+]);
+
+function compactFailureReason(value) {
+  const text = boundedString(value, 200);
+  return text && FAILURE_REASONS.has(text) ? text : null;
+}
+
 /** One model call's usage, the fields TheOne's cost ledger reads. */
 function usageRecord(record) {
   const value = record && typeof record === 'object' ? record : {};
-  const usage = (item) => (item && typeof item === 'object' && !Array.isArray(item) ? item : null);
   return {
-    provider: value.provider ? String(value.provider) : null,
-    providerResponseModel: value.providerResponseModel ? String(value.providerResponseModel) : null,
-    providerResponseId: value.providerResponseId ? String(value.providerResponseId) : null,
-    requestedModel: value.requestedModel ? String(value.requestedModel) : null,
-    rawUsage: usage(value.rawUsage),
-    mappedUsage: usage(value.mappedUsage),
-    costUsd: typeof value.costUsd === 'number' ? value.costUsd : null,
+    provider: nullableString(value.provider, 100) ?? null,
+    providerResponseModel: nullableString(value.providerResponseModel, 200) ?? null,
+    providerResponseId: nullableString(value.providerResponseId, 300) ?? null,
+    requestedModel: nullableString(value.requestedModel, 200) ?? null,
+    rawUsage: compactRawUsage(value.rawUsage),
+    mappedUsage: compactRawUsage(value.mappedUsage),
+    costUsd: finiteNumber(value.costUsd),
   };
 }
 
@@ -405,6 +587,8 @@ function compactTask(raw) {
         mode: String(output.mode || ''),
         diff: String(output.diff || '').slice(0, 200000),
         diffStat: String(output.diffStat || '').slice(0, 4000),
+        diffDigest: compactDigest(output.diffDigest, true),
+        resultDigest: compactDigest(output.resultDigest),
         rollbackToken: String(output.rollbackToken || ''),
         workspaceMode: String(output.workspaceMode || ''),
         workspacePath: String(output.workspacePath || ''),
@@ -414,16 +598,34 @@ function compactTask(raw) {
         workspaceKept: output.workspaceKept === true,
         // Who did the work and what it cost, as the task card shows it.
         engine: String(output.engine || ''),
-        engineRequested: String(output.engineRequested || ''),
+        engineRequested: String(output.engineRequested || output.requestedEngine || ''),
         engineModel: output.engineModel ? String(output.engineModel) : null,
-        engineCostUsd: typeof output.engineCostUsd === 'number' ? output.engineCostUsd : null,
+        resolvedModel: nullableString(output.resolvedModel, 200) ?? null,
+        requestedEngine: String(output.requestedEngine || output.engineRequested || '').slice(0, 100),
+        actualEngine: String(output.actualEngine || output.engine || '').slice(0, 100),
+        requestedModel: nullableString(output.requestedModel, 200) ?? null,
+        actualModel: nullableString(output.actualModel, 200) ?? null,
+        providerResponseModel: nullableString(output.providerResponseModel, 200) ?? null,
+        providerResponseId: nullableString(output.providerResponseId, 300) ?? null,
+        providerEndpoint: nullableString(output.providerEndpoint, 1000) ?? null,
+        providerRequestId: nullableString(output.providerRequestId, 300) ?? null,
+        routeStatus: String(output.routeStatus || '').slice(0, 100),
+        routeMismatch: output.routeMismatch === true,
+        engineCostUsd: finiteNumber(output.engineCostUsd),
+        engineCostEstimated: output.engineCostEstimated === true,
+        totalCostUsd: finiteNumber(output.totalCostUsd),
+        costKnown: output.costKnown === true,
+        budgetUsd: finiteNumber(output.budgetUsd),
+        budgetRemainingUsd: finiteNumber(output.budgetRemainingUsd),
+        allAttemptsUsage: finiteNumber(output.allAttemptsUsage),
         changedFiles: compactChangedFiles(output.changedFiles),
         repo: String(output.repo || ''),
         prUrl: String(output.prUrl || ''),
         branch: String(output.branch || ''),
         ci: output.ci && typeof output.ci === 'object' ? output.ci : null,
         keptAttempt: typeof output.keptAttempt === 'number' ? output.keptAttempt : null,
-        attempts: Array.isArray(output.attempts) ? output.attempts : null,
+        attempts: compactAttempts(output.attempts),
+        preview: compactPreview(output.preview),
         setupOutput: String(output.setupOutput || '').slice(0, 4000),
         error: String(step.error || output.error || '').slice(0, 2000),
         // What happened to the work after the run, as the result card reads
@@ -433,11 +635,16 @@ function compactTask(raw) {
         failureClass: output.failureClass ? String(output.failureClass) : null,
         retryable: typeof output.retryable === 'boolean' ? output.retryable : null,
         nextAction: output.nextAction ? String(output.nextAction) : undefined,
+        finalFailureReason: compactFailureReason(output.finalFailureReason),
         acceptancePassed: typeof output.acceptancePassed === 'boolean' ? output.acceptancePassed : null,
         acceptanceReason: output.acceptanceReason == null ? null : String(output.acceptanceReason).slice(0, 200),
         acceptanceSummary: output.acceptanceSummary == null ? null : String(output.acceptanceSummary).slice(0, 500),
         acceptanceAssurance: ['independent', 'runtime_checks'].includes(output.acceptanceAssurance) ? output.acceptanceAssurance : null,
         sourceWorkspacePath: output.sourceWorkspacePath ? String(output.sourceWorkspacePath) : undefined,
+        workUnitId: boundedString(output.workUnitId, 200),
+        parentTaskId: nullableString(output.parentTaskId, 200),
+        continuedFromTaskId: nullableString(output.continuedFromTaskId, 200),
+        runtimeOrigin: boundedString(output.runtimeOrigin, 64),
         dirtyFiles: Array.isArray(output.dirtyFiles) ? output.dirtyFiles.slice(0, 50).map(String) : undefined,
         trustedStagingWriteback: plain(output.trustedStagingWriteback, (value) => ({
           applied: value.applied === true,
@@ -475,12 +682,15 @@ function compactTask(raw) {
           upstream: value.upstream ? String(value.upstream) : null,
           behind: typeof value.behind === 'number' ? value.behind : null, ahead: typeof value.ahead === 'number' ? value.ahead : null,
         })),
+        autoVerifyPassed: typeof output.autoVerifyPassed === 'boolean' ? output.autoVerifyPassed : null,
+        providerReceipt: compactProviderReceipt(output.providerReceipt),
         // Usage only, for the cost receipt: no diff, summary or commands twice.
         agentReceipt: plain(output.agentReceipt, (value) => ({
           startedAt: value.startedAt ? String(value.startedAt) : undefined,
           finishedAt: value.finishedAt ? String(value.finishedAt) : undefined,
           // The agent's own tool calls: one coding step makes dozens.
           toolCalls: typeof value.toolCalls === 'number' ? value.toolCalls : undefined,
+          usage: compactAgentUsage(value.usage),
           modelUsageRecords: Array.isArray(value.modelUsageRecords) ? value.modelUsageRecords.slice(0, 500).map(usageRecord) : [],
         })),
       },

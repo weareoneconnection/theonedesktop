@@ -116,6 +116,71 @@ test('compact task fails closed on an unknown verification status', () => {
   assert.equal(task.steps[0].output.verification.secret, undefined);
 });
 
+test('compact task preserves bounded v2 identity, cost, preview and Provider failure evidence', () => {
+  const digest = `sha256:${'a'.repeat(64)}`;
+  const task = policy.compactTask({
+    id: 'T4abc', status: 'failed', logs: [],
+    steps: [{ stepId: 's', action: 'code.patch.apply', status: 'failed', output: {
+      schemaVersion: 'theone.code_execution_result.v2', taskId: 'T4abc', taskMode: 'change',
+      lifecycleStatus: 'failed', verified: false, changedFiles: [],
+      diffDigest: null, resultDigest: digest, autoVerifyPassed: false,
+      workUnitId: 'code:T4abc', parentTaskId: 'local:parent', continuedFromTaskId: 'local:prior',
+      requestedEngine: 'theone', actualEngine: 'theone', requestedModel: 'oneai:gpt', actualModel: null,
+      routeStatus: 'MATCH', routeMismatch: false,
+      totalCostUsd: 0.25, costKnown: true, budgetUsd: 2, budgetRemainingUsd: 1.75,
+      finalFailureReason: 'timeout',
+      attempts: [{ attempt: 1, engine: 'theone', model: 'oneai:gpt', status: 'error', timedOut: true }],
+      preview: { url: 'http://127.0.0.1:3000', command: 'npm run dev', before: { ok: false, error: 'not ready', at: 'now' }, after: null },
+      providerReceipt: {
+        provider: 'oneai', requestedChannel: 'oneai', resolvedChannel: 'oneai', actualChannel: 'oneai',
+        gatewayRequestId: 'gw_1', requestedModel: 'oneai:gpt', retryCount: 0, timeoutMs: 600000,
+        providerEndpoint: 'https://user:secret@api.example/v1?api_key=secret#fragment',
+        timedOut: true, cancelled: false, billingStatus: 'unknown',
+        rawUsage: {
+          input_tokens: 12,
+          output_tokens: 3,
+          input_tokens_details: { cached_tokens: 7, output_text: 'must not pass' },
+          output_text: 'secret completion'.repeat(1000),
+          input_prompt: 'secret prompt'.repeat(1000),
+          arbitrary_token_secret: 'must not pass',
+          output_items: Array(100).fill('must not pass'),
+        },
+        mappedUsage: { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 7, output_text: 'drop me' },
+        failure: {
+          kind: 'timeout', source: 'gateway', provider: 'oneai', retryable: true,
+          statusCode: 408, code: 'deadline', message: 'request timed out', requestId: 'req_1', retryAfterMs: null,
+          secret: 'drop me',
+        },
+        secret: 'drop me too',
+      },
+    } }],
+  });
+  const output = task.steps[0].output;
+  assert.equal(output.resultDigest, digest);
+  assert.equal(output.workUnitId, 'code:T4abc');
+  assert.equal(output.parentTaskId, 'local:parent');
+  assert.equal(output.autoVerifyPassed, false);
+  assert.equal(output.totalCostUsd, 0.25);
+  assert.equal(output.budgetRemainingUsd, 1.75);
+  assert.equal(output.finalFailureReason, 'timeout');
+  assert.equal(output.attempts[0].timedOut, true);
+  assert.equal(output.preview.url, 'http://127.0.0.1:3000');
+  assert.deepEqual(output.providerReceipt.failure, {
+    kind: 'timeout', source: 'gateway', provider: 'oneai', retryable: true,
+    statusCode: 408, code: 'deadline', message: 'request timed out', requestId: 'req_1', retryAfterMs: null,
+  });
+  assert.equal(output.providerReceipt.requestedChannel, 'oneai');
+  assert.equal(output.providerReceipt.providerEndpoint, 'https://api.example/v1');
+  assert.deepEqual(output.providerReceipt.rawUsage, {
+    input_tokens: 12,
+    output_tokens: 3,
+    input_tokens_details: { cached_tokens: 7 },
+  });
+  assert.deepEqual(output.providerReceipt.mappedUsage, { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 7 });
+  assert.equal(output.providerReceipt.secret, undefined);
+  assert.equal(output.providerReceipt.failure.secret, undefined);
+});
+
 test('PATH merges the login shell first, without duplicates', () => {
   assert.equal(policy.mergePath('/opt/homebrew/bin:/usr/bin', '/usr/bin:/bin', policy.FALLBACK_PATH).split(':')[0], '/opt/homebrew/bin');
   assert.equal(new Set(policy.mergePath('/a:/a', '/a').split(':')).size, 1);

@@ -18,11 +18,17 @@ only into a signed app, so every release must be signed and notarized.
 
 ## Each release
 
-1. Bump `version` in package.json.
-2. `npm test`
-3. With the variables above in the environment: `npm run release:mac`
-   (bundles the runtime, builds dmg + zip, signs, notarizes, uploads to a
-   draft-free GitHub release together with `latest-mac.yml`).
+1. Merge and review the exact OneClaw commit that belongs in the desktop
+   release. Keep its full 40-character SHA as `ONECLAW_RELEASE_COMMIT`; point
+   `ONECLAW_DIR` at that clean checkout when it is not the default sibling.
+2. Bump `version` in package.json and package-lock.json.
+3. `npm test`
+4. With the variables above in the environment: `npm run release:mac`.
+   The command now fails before upload unless the OneClaw checkout is clean
+   and exactly matches `ONECLAW_RELEASE_COMMIT`. It then builds and verifies
+   every local updater asset plus the packaged runtime digest before a separate
+   publish step uploads those already-checked files. Finally it verifies the
+   complete GitHub release, including blockmaps and `latest-mac.yml`.
 
 Installed apps check about 20 seconds after launch and every 4 hours, download
 in the background, and install on quit or from **TheOne → 重启以更新**.
