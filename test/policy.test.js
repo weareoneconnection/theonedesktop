@@ -621,3 +621,26 @@ test('a merge result keeps the PR, the merge commit and why it was blocked', () 
   assert.equal(output.reason, 'checks_failed');
   assert.deepEqual(output.checks, [{ name: 'ui', state: 'failed' }]);
 });
+
+test('compactTask keeps the layered run result and the summary card facts', () => {
+  const task = policy.compactTask({ id: 'T9', status: 'success', logs: [], steps: [{ stepId: 's', action: 'code.patch.apply', status: 'success', output: {
+    summary: 'brief\n\n# Report\nbody', brief: 'brief', runtimeNotice: 'notice', report: '# Report\nbody',
+    reportOutline: [{ id: 's1', title: 'Report', level: 1, chars: 13, extra: 'dropped' }],
+    outcome: { schemaVersion: 'oneclaw.run_outcome.v1', state: 'verified', files: 2, added: 5, removed: 1, checks: [{ command: 'npm test', ok: true, output: 'dropped' }], checksPassed: 1, checksFailed: 0, gap: null, failureClass: null, secret: 'dropped' },
+    handoff: { schemaVersion: 'oneclaw.run_handoff.v1', done: 'brief', changedFiles: ['a.ts'], verifyCommands: ['npm test'], failingChecks: [], open: [], workspacePath: '/w' },
+    diffStatFromHead: ' 2 files changed', initialWorktreeChanges: [{ status: 'M', path: 'b.ts' }],
+    pythonEnvironment: { status: 'ready', python: '3.12', packages: 4 },
+  } }] });
+  const output = task.steps[0].output;
+  assert.equal(output.brief, 'brief');
+  assert.equal(output.runtimeNotice, 'notice');
+  assert.equal(output.report, '# Report\nbody');
+  assert.deepEqual(output.reportOutline, [{ id: 's1', title: 'Report', level: 1, chars: 13 }]);
+  assert.equal(output.outcome.state, 'verified');
+  assert.deepEqual(output.outcome.checks, [{ command: 'npm test', ok: true }]);
+  assert.equal(output.outcome.secret, undefined);
+  assert.deepEqual(output.handoff.verifyCommands, ['npm test']);
+  assert.equal(output.diffStatFromHead, ' 2 files changed');
+  assert.deepEqual(output.initialWorktreeChanges, [{ status: 'M', path: 'b.ts' }]);
+  assert.equal(output.pythonEnvironment.packages, 4);
+});

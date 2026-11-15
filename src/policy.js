@@ -584,6 +584,49 @@ function compactTask(raw) {
         verifyPassed: typeof output.verifyPassed === 'boolean' ? output.verifyPassed : null,
         // An analysis task's summary is its report.
         summary: String(output.summary || '').slice(0, 30000),
+        // The layered result (OneClaw run-outcome): a brief for the person and
+        // the conversation, the runtime's own facts, a handoff for the next
+        // run, and the report with its outline. Without these the page fell
+        // back to printing the whole summary.
+        brief: output.brief ? String(output.brief).slice(0, 2000) : undefined,
+        runtimeNotice: output.runtimeNotice ? String(output.runtimeNotice).slice(0, 2000) : undefined,
+        report: output.report ? String(output.report).slice(0, 30000) : undefined,
+        reportOutline: Array.isArray(output.reportOutline)
+          ? output.reportOutline.slice(0, 40).map((item) => ({
+            id: String(item && item.id || '').slice(0, 20), title: String(item && item.title || '').slice(0, 120),
+            level: Number(item && item.level) || 1, chars: Number(item && item.chars) || 0,
+          }))
+          : undefined,
+        outcome: plain(output.outcome, (value) => ({
+          schemaVersion: String(value.schemaVersion || ''),
+          state: String(value.state || '').slice(0, 40),
+          files: Number(value.files) || 0, added: Number(value.added) || 0, removed: Number(value.removed) || 0,
+          checks: Array.isArray(value.checks) ? value.checks.slice(0, 12).map((item) => ({ command: String(item && item.command || '').slice(0, 200), ok: Boolean(item && item.ok) })) : [],
+          checksPassed: Number(value.checksPassed) || 0, checksFailed: Number(value.checksFailed) || 0,
+          gap: value.gap ? String(value.gap).slice(0, 40) : null,
+          failureClass: value.failureClass ? String(value.failureClass).slice(0, 60) : null,
+        })),
+        handoff: plain(output.handoff, (value) => ({
+          schemaVersion: String(value.schemaVersion || ''),
+          done: String(value.done || '').slice(0, 2000),
+          changedFiles: Array.isArray(value.changedFiles) ? value.changedFiles.slice(0, 40).map((item) => String(item).slice(0, 300)) : [],
+          verifyCommands: Array.isArray(value.verifyCommands) ? value.verifyCommands.slice(0, 6).map((item) => String(item).slice(0, 200)) : [],
+          failingChecks: Array.isArray(value.failingChecks) ? value.failingChecks.slice(0, 6).map((item) => String(item).slice(0, 200)) : [],
+          open: Array.isArray(value.open) ? value.open.slice(0, 10).map((item) => String(item).slice(0, 400)) : [],
+          workspacePath: value.workspacePath ? String(value.workspacePath).slice(0, 500) : null,
+        })),
+        // What the summary card reads and the bridge used to drop.
+        diffStatFromHead: output.diffStatFromHead ? String(output.diffStatFromHead).slice(0, 4000) : undefined,
+        initialWorktreeChanges: Array.isArray(output.initialWorktreeChanges)
+          ? output.initialWorktreeChanges.slice(0, 200).map((item) => ({ status: String(item && item.status || '').slice(0, 8), path: String(item && item.path || '').slice(0, 500) }))
+          : undefined,
+        pythonEnvironment: plain(output.pythonEnvironment, (value) => ({
+          status: String(value.status || '').slice(0, 20),
+          python: value.python ? String(value.python).slice(0, 200) : undefined,
+          project: value.project ? String(value.project).slice(0, 500) : undefined,
+          packages: typeof value.packages === 'number' ? value.packages : undefined,
+          reason: value.reason ? String(value.reason).slice(0, 500) : undefined,
+        })),
         mode: String(output.mode || ''),
         diff: String(output.diff || '').slice(0, 200000),
         diffStat: String(output.diffStat || '').slice(0, 4000),
