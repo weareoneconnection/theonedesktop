@@ -341,7 +341,12 @@ app.on('second-instance', (_event, argv) => {
 app.whenReady().then(async () => {
   settings = new Settings({ dataDir, safeStorage });
   const entry = runtimeEntry();
-  const provenance = loadRuntimeProvenance({ entry, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath });
+  const provenance = loadRuntimeProvenance({
+    entry,
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    desktopVersion: app.getVersion(),
+  });
   runtime = new LocalRuntime({ entry, dataDir, log, provenance });
   if (devApiKey) settings.devApiKey = devApiKey;
   preview = createPreview({ getWindow: () => mainWindow, getWorkspaces: () => settings.workspaces, send, log });

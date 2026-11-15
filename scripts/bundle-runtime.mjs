@@ -5,8 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import runtimeProvenance from '../src/runtime-provenance.js';
 import { assertReleaseSource } from './runtime-release-source.mjs';
+import { assertDesktopRuntimeContract } from './runtime-contract.mjs';
 
-const { digestRuntimeTree } = runtimeProvenance;
+const { digestFile, digestRuntimeArtifact, digestRuntimeTree } = runtimeProvenance;
 
 // Keep the packaged runtime aligned with the maintained OneClaw checkout used
 // by the coding conversation. CI/release may still provide ONECLAW_DIR for a
@@ -18,6 +19,11 @@ const releaseMode = process.argv.includes('--release');
 // --os=win32 --cpu=x64 when packaging for another platform than this one:
 // npm then installs that platform's optional native packages, not this Mac's.
 const platformFlags = process.argv.slice(2).filter((arg) => /^--(os|cpu)=[a-z0-9]+$/.test(arg));
+const optionValue = (name, fallback) => process.argv.find((arg) => arg.startsWith(`--${name}=`))?.split('=')[1] || fallback;
+const targetPlatform = optionValue('os', process.platform);
+const targetArch = optionValue('cpu', process.arch);
+const sourcePackage = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));
+assertDesktopRuntimeContract(sourcePackage);
 
 const gitText = (args) => {
   try { return String(execFileSync('git', args, { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })).trim(); }
@@ -91,17 +97,26 @@ if (process.env.ONECLAW_OBFUSCATE !== '0') {
 // Never ship an env file: the app builds the runtime's environment itself.
 for (const leftover of ['.env', '.env.local', '.env.example']) fs.rmSync(path.join(target, leftover), { force: true });
 execFileSync('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', ...platformFlags], { cwd: target, stdio: 'inherit' });
-const sourcePackage = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));
+// npm's command shims are symlinks and are not needed by a runtime launched as
+// `node dist/index.js`. Removing them lets the installed app reject every
+// symlink instead of accidentally following one outside its verified root.
+fs.rmSync(path.join(target, 'node_modules', '.bin'), { recursive: true, force: true });
+const desktopPackage = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
 const provenance = {
-  schemaVersion: 'theone.desktop_runtime_provenance.v1',
+  schemaVersion: 'theone.desktop_runtime_provenance.v2',
+  desktopVersion: String(desktopPackage.version || ''),
   oneClawVersion: String(sourcePackage.version || ''),
   oneClawCommit: actualCommit || null,
+  platform: targetPlatform,
+  arch: targetArch,
   // Include untracked build inputs but ignore unrelated local artifacts such
   // as eval results. A package made from an uncommitted source/dist/config
   // tree must never advertise itself as a clean commit build.
   sourceDirty: Boolean(sourceStatus()),
   releasePinned: releaseMode,
   distDigest: digestRuntimeTree(path.join(target, 'dist')),
+  packageLockDigest: digestFile(path.join(target, 'package-lock.json')),
+  runtimeDigest: digestRuntimeArtifact(target),
 };
 fs.writeFileSync(path.join(target, 'runtime-provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`);
-console.log(`runtime bundled into ${target}${platformFlags.length ? ` (${platformFlags.join(' ')})` : ''}; commit=${provenance.oneClawCommit || 'unknown'} dirty=${provenance.sourceDirty} digest=${provenance.distDigest}`);
+console.log(`runtime bundled into ${target}${platformFlags.length ? ` (${platformFlags.join(' ')})` : ''}; commit=${provenance.oneClawCommit || 'unknown'} dirty=${provenance.sourceDirty} digest=${provenance.runtimeDigest}`);
