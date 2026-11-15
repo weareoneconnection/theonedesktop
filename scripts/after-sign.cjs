@@ -4,6 +4,7 @@
 // only after every packaged runtime binary has its final signature.
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 
 async function refreshRuntimeProvenance(runtimeRoot) {
@@ -17,9 +18,25 @@ async function refreshRuntimeProvenance(runtimeRoot) {
   fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
 }
 
+function resealMacApp(appPath, identity) {
+  execFileSync('codesign', [
+    '--deep',
+    '--force',
+    '--verbose',
+    '--sign',
+    identity || '-',
+    appPath,
+  ], { stdio: 'inherit' });
+}
+
 exports.default = async function afterSign(context) {
   const resources = context.electronPlatformName === 'darwin'
     ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
     : path.join(context.appOutDir, 'resources');
   await refreshRuntimeProvenance(path.join(resources, 'oneclaw'));
+    if (context.electronPlatformName === 'darwin') {
+      const appPath = path.dirname(path.dirname(resources));
+      const identity = context.packager.platformSpecificBuildOptions?.identity || '-';
+      resealMacApp(appPath, identity);
+    }
 };
