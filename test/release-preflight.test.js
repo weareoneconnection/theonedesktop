@@ -49,9 +49,10 @@ test('packaged runtime preflight verifies bytes, pin and clean provenance', asyn
   fs.writeFileSync(path.join(runtimeRoot, 'package.json'), '{"name":"fixture"}');
   fs.writeFileSync(path.join(runtimeRoot, 'package-lock.json'), '{"lockfileVersion":3}');
   const commit = 'c'.repeat(40);
+  const desktopVersion = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version;
   const receipt = {
     schemaVersion: PROVENANCE_SCHEMA,
-    desktopVersion: '0.4.39',
+    desktopVersion,
     oneClawVersion: '0.4.0',
     oneClawCommit: commit,
     platform: 'darwin',
