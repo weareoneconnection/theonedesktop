@@ -125,14 +125,16 @@ class LocalRuntime {
       ...(process.platform === 'win32' && gitBash() ? { ONECLAW_SHELL: gitBash() } : {}),
       ONECLAW_TASK_WORKSPACE_ROOT: path.join(this.dataDir, 'tasks'),
       ONECLAW_AGENT_STATE_DIR: path.join(this.dataDir, 'agent-sessions'),
-      // Task history survives restarts. A task that was running when the app
-      // quit is marked interrupted on the next start, not resumed: local tasks
-      // may edit the person's own folder, and resuming that unasked is wrong.
+      // Task history survives restarts. Recovery closes unfinished local work
+      // as interrupted, but never re-dispatches it: a local task may edit the
+      // person's own folder, and resuming that unasked is wrong.
       ONECLAW_TASK_STORE: 'file',
       ONECLAW_TASK_STORE_FILE: path.join(this.dataDir, 'tasks.json'),
       // One person's runtime: without a tenant it creates no tasks at all.
       ONECLAW_TENANT_ID: LOCAL_TENANT,
-      ONECLAW_RECOVER_ON_BOOT: 'false',
+      ONECLAW_RECOVER_ON_BOOT: 'true',
+      ONECLAW_RECOVER_SAFE_TASKS_ON_BOOT: 'false',
+      ONECLAW_RECOVERY_STALE_MS: '1',
       ONECLAW_AGENT_MAX_CONCURRENCY: '2',
       // Same room as the cloud runtime (150 on Railway; the runtime's own
       // default is 50). A local run that needs to install and verify ran out

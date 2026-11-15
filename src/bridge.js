@@ -15,8 +15,10 @@ const { dialog, ipcMain, Notification, shell, app } = require('electron');
 const { buildLocalDeliverInput, buildLocalMergeInput, buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
 const { buildAttestation, loadOrCreateKey } = require('./attestation');
+const { bridgeContract } = require('./bridge-contract');
 const { installCodex } = require('./codex-install');
 const { createTaskOwnershipStore, identityKey } = require('./task-ownership');
+const { buildTaskReceipt, taskReceiptStateDigest } = require('./task-receipt');
 
 const execFileAsync = promisify(execFile);
 const SETTINGS_SHORTCUT = process.platform === 'darwin' ? '⌘,' : 'Ctrl+,';
@@ -95,9 +97,16 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   handleWithEvent('desktop:setIdentity', async (event, identity) => {
     if (identity === null) { identities.delete(event.sender.id); return { ok: true, identityIsolation: true }; }
     // Validate before retaining it. The raw ids are never persisted here.
-    identityKey(identity);
+    const binding = identityKey(identity);
     const firstBinding = !identities.has(event.sender.id);
-    identities.set(event.sender.id, { tenantId: String(identity.tenantId), userId: String(identity.userId) });
+    const previous = identities.get(event.sender.id);
+    const sameAccount = previous && identityKey(previous) === binding;
+    const suppliedSession = /^[A-Za-z0-9_:-]{6,120}$/.test(String(identity.sessionId || '')) ? String(identity.sessionId) : null;
+    // Background list/pending refreshes historically rebound only tenant/user.
+    // Preserve the active session for the same account instead of silently
+    // clearing it just before a task is dispatched.
+    const sessionId = suppliedSession || (sameAccount ? previous.sessionId : null);
+    identities.set(event.sender.id, { tenantId: String(identity.tenantId), userId: String(identity.userId), sessionId });
     if (firstBinding) event.sender.once('destroyed', () => identities.delete(event.sender.id));
     return { ok: true, identityIsolation: true };
   });
@@ -105,7 +114,41 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   let attestationKey = null;
   const deviceKey = () => (attestationKey ||= loadOrCreateKey(app.getPath('userData')));
 
-  const info = () => ({
+  const dispatchBinding = (body, identity) => {
+    const value = body && typeof body === 'object' ? body : {};
+    const threadId = /^[A-Za-z0-9_:-]{6,80}$/.test(String(value.threadId || '')) ? String(value.threadId) : null;
+    // Persist this at claim time. Never use a renderer's later, current
+    // session while signing an older task that may still be polling.
+    const candidate = value.sessionId || value.agentSessionId || identity.sessionId || threadId;
+    const sessionId = /^[A-Za-z0-9_:-]{6,120}$/.test(String(candidate || '')) ? String(candidate) : null;
+    return { threadId, sessionId, createdAt: new Date().toISOString() };
+  };
+
+  const signedTaskReceipt = (id, task, identity) => {
+    const metadata = ownership.record(id, identity, {
+      threadId: task.threadId,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt || task.completedAt || task.startedAt || task.createdAt,
+    });
+    const input = {
+      task,
+      identityBinding: identityKey(identity),
+      sessionId: metadata.sessionId || null,
+      threadId: metadata.threadId || task.threadId || null,
+    };
+    const stateDigest = taskReceiptStateDigest(input);
+    const clock = ownership.receiptSequence(id, identity, stateDigest);
+    return buildTaskReceipt({ ...input, ...clock }, { key: deviceKey() });
+  };
+
+  const taskEnvelope = (id, task, identity) => {
+    let receipt = null;
+    try { receipt = signedTaskReceipt(id, task, identity); }
+    catch (error) { log(`could not sign local task receipt ${id}: ${error instanceof Error ? error.message : String(error)}`); }
+    return { task, receipt };
+  };
+
+  const info = ({ signingAvailable = false } = {}) => ({
     version: app.getVersion(),
     platform: process.platform,
     runtime: runtime.state,
@@ -115,6 +158,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     codexUsesApiKey: settings.codexUsesApiKey,
     workspaces: settings.workspaces,
     identityIsolation: true,
+    bridge: bridgeContract(runtime.provenance || null, { signingAvailable }),
   });
 
   // The project's own dev server, started by a button on the preview toolbar (dev-server.js).
@@ -144,7 +188,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   handle('desktop:info', async () => {
     let attestation = null;
     try { attestation = { keyId: deviceKey().keyId, publicKey: deviceKey().publicKey }; } catch { /* key store unavailable */ }
-    return { ...info(), attestation };
+    return { ...info({ signingAvailable: Boolean(attestation) }), attestation };
   });
 
   // TheOne's challenge in, this Mac's signed statement out. The statement
@@ -207,7 +251,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
       }, { 'x-oneclaw-dispatch': 'background' });
       const id = created && (created.id || (created.task && created.task.id));
       if (!id) throw new Error('The local runtime did not return a task id.');
-      ownership.claim(String(id), identity);
+      ownership.claim(String(id), identity, dispatchBinding(body, identity));
       await approveWhenAsked(String(id), 'theone-desktop: the person asked to commit and push');
       return { taskId: toLocalId(id) };
     }
@@ -221,7 +265,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
       }, { 'x-oneclaw-dispatch': 'background' });
       const id = created && (created.id || (created.task && created.task.id));
       if (!id) throw new Error('The local runtime did not return a task id.');
-      ownership.claim(String(id), identity);
+      ownership.claim(String(id), identity, dispatchBinding(body, identity));
       await approveWhenAsked(String(id), 'theone-desktop: the person asked to merge the pull request');
       return { taskId: toLocalId(id) };
     }
@@ -255,7 +299,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     }, { 'x-oneclaw-dispatch': 'background' });
     const id = created && (created.id || (created.task && created.task.id));
     if (!id) throw new Error('The local runtime did not return a task id.');
-    ownership.claim(String(id), identity);
+    ownership.claim(String(id), identity, dispatchBinding(body, identity));
     if (firstChange) await approveWhenAsked(String(id), 'theone-desktop: approved at the first change');
     // Approved on the conversation's card before dispatch (TheOne checks the
     // grant): answer the runtime's own request once, so the person is not
@@ -302,7 +346,56 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     ]);
     const task = compactTask(raw);
     if (!task) throw new Error('task not found');
-    return { task, approvals };
+    return { ...taskEnvelope(id, task, currentIdentity(event)), approvals };
+  });
+
+  /**
+   * Durable, account-scoped task history. Ownership is read from the local
+   * index rather than inferred from renderer storage; the runtime is queried
+   * only for ids already owned by the authenticated account.
+   */
+  handleWithEvent('desktop:listTasks', async (event, query) => {
+    const identity = currentIdentity(event);
+    if (runtime.state.status !== 'ready') return { items: [], nextCursor: null, available: false };
+    const input = query && typeof query === 'object' ? query : {};
+    const threadId = /^[A-Za-z0-9_:-]{6,80}$/.test(String(input.threadId || '')) ? String(input.threadId) : null;
+    const limit = Math.max(1, Math.min(100, Number.isFinite(Number(input.limit)) ? Math.floor(Number(input.limit)) : 30));
+    let offset = 0;
+    if (typeof input.cursor === 'string' && /^[A-Za-z0-9_-]{1,24}$/.test(input.cursor)) {
+      try {
+        const decoded = Buffer.from(input.cursor, 'base64url').toString('utf8');
+        if (/^\d{1,8}$/.test(decoded)) offset = Number(decoded);
+      } catch { /* invalid cursors start at the first page */ }
+    }
+
+    // One migration window for v1 ownership files: recent runtime records
+    // repopulate thread/timestamps, while ownership remains the read gate.
+    const recent = await runtime.request('GET', '/v1/tasks?limit=200').catch(() => null);
+    for (const raw of Array.isArray(recent && recent.items) ? recent.items : []) {
+      if (!ownership.owns(raw && raw.id, identity)) continue;
+      const task = compactTask(raw);
+      if (task) ownership.record(String(raw.id), identity, {
+        threadId: task.threadId,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt || task.completedAt || task.startedAt || task.createdAt,
+      });
+    }
+
+    const index = ownership.list(identity, { ...(threadId ? { threadId } : {}) });
+    const page = index.slice(offset, offset + limit);
+    const items = (await Promise.all(page.map(async (entry) => {
+      const raw = await runtime.request('GET', `/v1/tasks/${encodeURIComponent(entry.taskId)}`).catch(() => null);
+      const task = compactTask(raw);
+      if (!task) return null;
+      const envelope = taskEnvelope(entry.taskId, task, identity);
+      return threadId && envelope.receipt && envelope.receipt.threadId !== threadId ? null : envelope;
+    }))).filter(Boolean);
+    const nextOffset = offset + page.length;
+    return {
+      items,
+      nextCursor: nextOffset < index.length ? Buffer.from(String(nextOffset)).toString('base64url') : null,
+      available: true,
+    };
   });
 
   // A running task's log from a cursor, so a local task streams the same way

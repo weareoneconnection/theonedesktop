@@ -698,6 +698,7 @@ function compactTask(raw) {
   }) : [];
   const planned = task.metadata && task.metadata.normalizedTask && Array.isArray(task.metadata.normalizedTask.steps) ? task.metadata.normalizedTask.steps : [];
   const agentInput = (planned.find((step) => step && ['code.patch.apply', 'code.workspace.analyze', 'code.workspace.deliver'].includes(step.action)) || {}).input || {};
+  const taskThreadId = /^[A-Za-z0-9_:-]{6,80}$/.test(String(agentInput.threadId || '')) ? String(agentInput.threadId) : undefined;
   return {
     id: toLocalId(String(task.id || '')),
     status: String(task.status || ''),
@@ -705,6 +706,7 @@ function compactTask(raw) {
     writeGate: agentInput.writeGate === true,
     taskName: String(task.taskName || ''),
     objective: String(agentInput.objective || '').slice(0, 2000),
+    ...(taskThreadId ? { threadId: taskThreadId } : {}),
     target: String(agentInput.workspacePath || agentInput.repo || ''),
     createdAt: String(task.createdAt || ''),
     startedAt: task.startedAt ? String(task.startedAt) : '',

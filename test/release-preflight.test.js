@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { digestRuntimeTree, PROVENANCE_SCHEMA } = require('../src/runtime-provenance');
+const { digestFile, digestRuntimeArtifact, digestRuntimeTree, PROVENANCE_SCHEMA } = require('../src/runtime-provenance');
 
 test('release source must be clean and pinned to the reviewed OneClaw commit', async () => {
   const { assertReleaseSource } = await import('../scripts/runtime-release-source.mjs');
@@ -17,6 +17,25 @@ test('release source must be clean and pinned to the reviewed OneClaw commit', a
   assert.doesNotThrow(() => assertReleaseSource({ releaseMode: false, expectedCommit: '', actualCommit: '', sourceDirty: true }));
 });
 
+test('bundling refuses a OneClaw without the Desktop recovery/result contract', async () => {
+  const { assertDesktopRuntimeContract } = await import('../scripts/runtime-contract.mjs');
+  assert.doesNotThrow(() => assertDesktopRuntimeContract({
+    theoneDesktopRuntime: {
+      contractVersion: 1,
+      safeRecoverySwitch: 'ONECLAW_RECOVER_SAFE_TASKS_ON_BOOT',
+      taskResultSchemas: ['theone.code_execution_result.v2'],
+    },
+  }));
+  assert.throws(() => assertDesktopRuntimeContract({}), /third-batch OneClaw commit/);
+  assert.throws(() => assertDesktopRuntimeContract({
+    theoneDesktopRuntime: {
+      contractVersion: 1,
+      safeRecoverySwitch: 'ONECLAW_RECOVER_SAFE_TASKS_ON_BOOT',
+      taskResultSchemas: ['theone.code_execution_result.v1'],
+    },
+  }), /runtime contract/);
+});
+
 test('packaged runtime preflight verifies bytes, pin and clean provenance', async (t) => {
   const releaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theone-release-preflight-'));
   t.after(() => fs.rmSync(releaseDir, { recursive: true, force: true }));
@@ -24,15 +43,24 @@ test('packaged runtime preflight verifies bytes, pin and clean provenance', asyn
   const runtimeRoot = path.join(resources, 'oneclaw');
   const dist = path.join(runtimeRoot, 'dist');
   fs.mkdirSync(dist, { recursive: true });
+  fs.mkdirSync(path.join(runtimeRoot, 'node_modules', 'fixture'), { recursive: true });
   fs.writeFileSync(path.join(dist, 'index.js'), 'module.exports = true;');
+  fs.writeFileSync(path.join(runtimeRoot, 'node_modules', 'fixture', 'index.js'), 'module.exports = true;');
+  fs.writeFileSync(path.join(runtimeRoot, 'package.json'), '{"name":"fixture"}');
+  fs.writeFileSync(path.join(runtimeRoot, 'package-lock.json'), '{"lockfileVersion":3}');
   const commit = 'c'.repeat(40);
   const receipt = {
     schemaVersion: PROVENANCE_SCHEMA,
+    desktopVersion: '0.4.39',
     oneClawVersion: '0.4.0',
     oneClawCommit: commit,
+    platform: 'darwin',
+    arch: 'arm64',
     sourceDirty: false,
     releasePinned: true,
     distDigest: digestRuntimeTree(dist),
+    packageLockDigest: digestFile(path.join(runtimeRoot, 'package-lock.json')),
+    runtimeDigest: digestRuntimeArtifact(runtimeRoot),
   };
   fs.writeFileSync(path.join(runtimeRoot, 'runtime-provenance.json'), JSON.stringify(receipt));
 

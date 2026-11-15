@@ -18,7 +18,17 @@ export function verifyPackagedRuntime({ platform, releaseDir = path.resolve('rel
   const resourcesPath = packagedResourcesPath(platform, releaseDir);
   const entry = path.join(resourcesPath, 'oneclaw', 'dist', 'index.js');
   if (!fs.existsSync(entry)) throw new Error(`Packaged OneClaw entry is missing: ${entry}`);
-  const receipt = loadRuntimeProvenance({ entry, isPackaged: true, resourcesPath });
+  const desktopPackage = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
+  const expectedPlatform = platform === 'mac' ? 'darwin' : 'win32';
+  const expectedArch = platform === 'mac' ? 'arm64' : 'x64';
+  const receipt = loadRuntimeProvenance({
+    entry,
+    isPackaged: true,
+    resourcesPath,
+    desktopVersion: String(desktopPackage.version || ''),
+    platform: expectedPlatform,
+    arch: expectedArch,
+  });
   if (!receipt) throw new Error('Packaged OneClaw provenance is missing or invalid.');
   if (receipt.integrity !== 'verified') throw new Error(`Packaged OneClaw integrity is ${receipt.integrity || 'unknown'} (${receipt.integrityReason || 'no reason'}).`);
   if (receipt.sourceDirty !== false) throw new Error('Packaged OneClaw provenance does not prove a clean release source.');
@@ -38,7 +48,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     const platform = option('--platform', '');
     const receipt = verifyPackagedRuntime({ platform, expectedCommit: process.env.ONECLAW_RELEASE_COMMIT });
-    console.log(`packaged OneClaw verified (${platform}; commit=${receipt.oneClawCommit}; digest=${receipt.distDigest})`);
+    console.log(`packaged OneClaw verified (${platform}; commit=${receipt.oneClawCommit}; digest=${receipt.runtimeDigest || receipt.distDigest})`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
