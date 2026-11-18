@@ -644,3 +644,17 @@ test('compactTask keeps the layered run result and the summary card facts', () =
   assert.deepEqual(output.initialWorktreeChanges, [{ status: 'M', path: 'b.ts' }]);
   assert.equal(output.pythonEnvironment.packages, 4);
 });
+
+test('compactTask does not silently truncate a long analysis report', () => {
+  const report = 'r'.repeat(40000);
+  const task = policy.compactTask({ id: 'T-report', status: 'success', logs: [], steps: [{
+    stepId: 's', action: 'code.workspace.analyze', status: 'success',
+    output: { summary: report, brief: 'short', report, reportChars: report.length, reportTruncated: false },
+  }] });
+  // The layered report is complete; its duplicated legacy summary stays
+  // bounded so polling does not send the same long text twice.
+  assert.equal(task.steps[0].output.summary.length, 30000);
+  assert.equal(task.steps[0].output.report.length, 40000);
+  assert.equal(task.steps[0].output.reportChars, 40000);
+  assert.equal(task.steps[0].output.reportTruncated, false);
+});

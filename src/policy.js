@@ -582,15 +582,23 @@ function compactTask(raw) {
         verified: output.verified === true,
         verification: compactVerification(output.verification),
         verifyPassed: typeof output.verifyPassed === 'boolean' ? output.verifyPassed : null,
-        // An analysis task's summary is its report.
-        summary: String(output.summary || '').slice(0, 30000),
+        // Keep the complete layered report for the person. Its duplicated
+        // legacy summary stays bounded so polling does not send the same long
+        // text twice; TheOne also excludes report text from the next model turn.
+        summary: output.report
+          ? String(output.summary || '').slice(0, 30000)
+          : String(output.summary || ''),
         // The layered result (OneClaw run-outcome): a brief for the person and
         // the conversation, the runtime's own facts, a handoff for the next
         // run, and the report with its outline. Without these the page fell
         // back to printing the whole summary.
         brief: output.brief ? String(output.brief).slice(0, 2000) : undefined,
         runtimeNotice: output.runtimeNotice ? String(output.runtimeNotice).slice(0, 2000) : undefined,
-        report: output.report ? String(output.report).slice(0, 30000) : undefined,
+        report: output.report ? String(output.report) : undefined,
+        reportChars: Number.isFinite(Number(output.reportChars))
+          ? Math.max(0, Number(output.reportChars))
+          : output.report ? String(output.report).length : undefined,
+        reportTruncated: output.reportTruncated === true,
         reportOutline: Array.isArray(output.reportOutline)
           ? output.reportOutline.slice(0, 40).map((item) => ({
             id: String(item && item.id || '').slice(0, 20), title: String(item && item.title || '').slice(0, 120),
