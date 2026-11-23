@@ -93,14 +93,12 @@
     },
     "afterPack": "scripts/after-pack.cjs",
     "afterSign": "scripts/after-sign.cjs",
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "weareoneconnection",
-        "repo": "theonedesktop",
-        "releaseType": "release"
-      }
-    ]
+    "publish": {
+      "provider": "github",
+      "owner": "weareoneconnection",
+      "repo": "theonedesktop",
+      "releaseType": "release"
+    }
   },
   "devDependencies": {
     "electron": "^44.4.1",

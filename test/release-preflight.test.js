@@ -77,18 +77,21 @@ test('publisher receives only a complete, already-built asset set', async (t) =>
   const releaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theone-publish-preflight-'));
   t.after(() => fs.rmSync(releaseDir, { recursive: true, force: true }));
   const { expectedReleaseAssets } = await import('../scripts/verify-release-assets.mjs');
-  const { publishArguments } = await import('../scripts/publish-release-assets.mjs');
+  const { publishFiles, publishConfiguration } = await import('../scripts/publish-release-assets.mjs');
   const version = '0.4.38';
   const names = expectedReleaseAssets(version, 'mac');
   for (const name of names) fs.writeFileSync(path.join(releaseDir, name), 'fixture');
-  const args = publishArguments({ version, platform: 'mac', releaseDir });
-  assert.deepEqual(args.slice(0, 5), ['publish', '--policy', 'always', '--version', version]);
-  for (const name of names) assert.ok(args.includes(path.join(releaseDir, name)));
+  const files = publishFiles({ version, platform: 'mac', releaseDir });
+  assert.deepEqual(files, names.map((name) => path.join(releaseDir, name)));
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  assert.equal(publishConfiguration(pkg).provider, 'github');
+  assert.throws(() => publishConfiguration({ build: { publish: [pkg.build.publish] } }), /single object/);
+  assert.throws(() => publishConfiguration({ build: {} }), /no GitHub publish target/);
   fs.rmSync(path.join(releaseDir, names[0]));
-  assert.throws(() => publishArguments({ version, platform: 'mac', releaseDir }), /incomplete/);
+  assert.throws(() => publishFiles({ version, platform: 'mac', releaseDir }), /incomplete/);
 
   fs.writeFileSync(path.join(releaseDir, names[0]), 'fixture');
   fs.rmSync(path.join(releaseDir, names[1]));
   fs.symlinkSync(path.join(releaseDir, names[0]), path.join(releaseDir, names[1]));
-  assert.throws(() => publishArguments({ version, platform: 'mac', releaseDir }), /invalid release asset/);
+  assert.throws(() => publishFiles({ version, platform: 'mac', releaseDir }), /invalid release asset/);
 });
