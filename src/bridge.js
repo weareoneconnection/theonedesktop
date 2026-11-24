@@ -431,7 +431,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     // logout or while an account switch has not finished binding.
     currentIdentity(event);
     if (runtime.state.status !== 'ready') throw new Error('The local runtime is not running.');
-    const call = localAgentCall(body, settings.workspaces);
+    const call = localAgentCall(body, settings.workspaces, settings.terminal);
     const result = await runtime.request('POST', '/v1/actions/execute', {
       action: call.action,
       approvalMode: 'auto',
@@ -510,7 +510,19 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   };
   const restartRuntime = async () => announce(await runtime.restart(...settings.runtimeArgs()));
   const ops = {
-    get: () => ({ hasApiKey: settings.hasApiKey, hasOpenAIKey: settings.hasOpenAIKey, codexUsesApiKey: settings.codexUsesApiKey, runtime: runtime.state, oneClaw: runtime.provenance || null, workspaces: settings.workspaces, version: app.getVersion(), platform: process.platform }),
+    get: () => ({ hasApiKey: settings.hasApiKey, hasOpenAIKey: settings.hasOpenAIKey, codexUsesApiKey: settings.codexUsesApiKey, runtime: runtime.state, oneClaw: runtime.provenance || null, workspaces: settings.workspaces, terminal: settings.terminal, version: app.getVersion(), platform: process.platform }),
+    // The terminal: whether it is on, and for which opened folders. Turning it off is always allowed;
+    // turning it on is confirmed in a native dialog (below).
+    terminalState: () => ({ ...settings.terminal, auditFile: path.join(app.getPath('userData'), 'terminal-audit.jsonl') }),
+    async setTerminalEnabled(value) {
+      settings.setTerminalEnabled(Boolean(value));
+      // The runtime only has the terminal while it is on, so it starts again with the new setting.
+      return { terminal: ops.terminalState(), runtime: await restartRuntime() };
+    },
+    setTerminalFolder(folder, on) {
+      settings.setTerminalFolder(folder, Boolean(on));
+      return { terminal: ops.terminalState() };
+    },
     async setApiKey(value) {
       const key = String(value || '').trim();
       if (key && !looksLikeAnthropicKey(key)) throw new Error('That does not look like an Anthropic API key (sk-ant-…).');
@@ -576,8 +588,33 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     if (response !== 0) throw new Error(english ? 'Cancelled.' : '已取消。');
   };
 
+  // Turning the terminal on, or on for a folder, is confirmed here, in a dialog the page cannot
+  // draw or click: a page that went wrong cannot give itself a shell on this computer. Turning it
+  // off needs no question; it is the safe direction.
+  const confirmTerminal = async (folder) => {
+    const english = app.getLocale().toLowerCase().startsWith('en');
+    const window = getWindow();
+    const options = {
+      type: 'warning',
+      buttons: english ? ['Turn on', 'Cancel'] : ['开启', '取消'],
+      defaultId: 1,
+      cancelId: 1,
+      message: folder
+        ? (english ? `Let TheOne run commands in “${path.basename(folder)}”?` : `允许 TheOne 在“${path.basename(folder)}”里运行命令？`)
+        : (english ? 'Let TheOne run commands on this computer?' : '允许 TheOne 在这台电脑上运行命令？'),
+      detail: english
+        ? `${folder ? `${folder}\n\n` : ''}Commands run as you, only in folders you turn this on for. Commands that only read run on their own; anything that changes files or uses the network asks you first; dangerous ones are refused. Every command is logged on this computer. Requested from TheOne settings.`
+        : `${folder ? `${folder}\n\n` : ''}命令以你的身份运行，只在你开启的文件夹里。只读的命令会自己运行；会改文件或联网的会先问你；危险的一律拒绝。每条命令都会记录在这台电脑上。来自 TheOne 设置。`,
+    };
+    const { response } = window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
+    if (response !== 0) throw new Error(english ? 'Cancelled.' : '已取消。');
+  };
+
   // The TheOne page's settings centre.
   handle('desktop:settings', async () => ops.get());
+  handle('desktop:terminalSettings', async () => ops.terminalState());
+  handle('desktop:setTerminalEnabled', async (value) => { if (value) await confirmTerminal(null); return ops.setTerminalEnabled(value); });
+  handle('desktop:setTerminalFolder', async (folder, on) => { if (on) await confirmTerminal(String(folder || '')); return ops.setTerminalFolder(String(folder || ''), on); });
   handle('desktop:setApiKey', async (value) => { await confirmKeyChange('Anthropic', value); return ops.setApiKey(value); });
   handle('desktop:setOpenAIKey', async (value) => { await confirmKeyChange('OpenAI', value); return ops.setOpenAIKey(value); });
   handle('desktop:setCodexUsesApiKey', async (value) => ops.setCodexUsesApiKey(value));

@@ -16,6 +16,7 @@ const KNOWN_CAPABILITIES = Object.freeze([
   'logCursorV1',
   'runtimeProvenanceV1',
   'runtimeProvenanceV2',
+  'terminalV1',
 ]);
 const SUPPORTED_CAPABILITIES = Object.freeze([
   'identityIsolationV1',
@@ -24,6 +25,7 @@ const SUPPORTED_CAPABILITIES = Object.freeze([
   'typedFailureV2',
   'logCursorV1',
   'runtimeProvenanceV1',
+  'terminalV1',
 ]);
 
 function bridgeContract(provenance, { signingAvailable = true } = {}) {

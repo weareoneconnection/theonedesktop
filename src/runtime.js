@@ -69,16 +69,18 @@ class LocalRuntime {
     this.apiKey = '';
     this.openaiKey = '';
     this.codexUsesKey = false;
+    this.terminalEnabled = false;
   }
 
   get baseUrl() {
     return `http://127.0.0.1:${this.port}`;
   }
 
-  async start(apiKey, openaiKey, codexUsesKey) {
+  async start(apiKey, openaiKey, codexUsesKey, terminalEnabled) {
     this.apiKey = apiKey || '';
     this.openaiKey = openaiKey || '';
     this.codexUsesKey = Boolean(codexUsesKey);
+    this.terminalEnabled = Boolean(terminalEnabled);
     // Development and explicit custom entries have no provenance object. The
     // default packaged entry always has one and must verify: a missing,
     // unreadable or deleted receipt must not turn integrity checking off.
@@ -140,6 +142,9 @@ class LocalRuntime {
       // default is 50). A local run that needs to install and verify ran out
       // of turns at 50 after its code was already right.
       AGENT_ENGINE_MAX_TURNS: '150',
+      // The terminal only exists in the runtime while the person has it on. Every command it runs
+      // is also written to a file in the app's data folder (owner-only), whatever the page does.
+      ...(this.terminalEnabled ? { ONECLAW_TERMINAL_ENABLED: 'true', ONECLAW_TERMINAL_AUDIT_FILE: path.join(this.dataDir, 'terminal-audit.jsonl') } : {}),
       ...(this.apiKey ? { ANTHROPIC_API_KEY: this.apiKey } : {}),
       // For TheOne's engine on OpenAI models. Not OPENAI_API_KEY: Codex would
       // take that over the ChatGPT login it runs on, and bill the key instead.
@@ -198,9 +203,9 @@ class LocalRuntime {
     this.state = { status: 'stopped', error: '' };
   }
 
-  async restart(apiKey, openaiKey, codexUsesKey) {
+  async restart(apiKey, openaiKey, codexUsesKey, terminalEnabled) {
     await this.stop();
-    return this.start(apiKey, openaiKey, codexUsesKey);
+    return this.start(apiKey, openaiKey, codexUsesKey, terminalEnabled);
   }
 
   async request(method, pathname, body, headers = {}) {
