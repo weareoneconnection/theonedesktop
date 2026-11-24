@@ -862,7 +862,89 @@ const LOCAL_AGENT_ACTIONS = new Set([
   'file.read', 'file.list', 'file.exists', 'file.search',
   'code.workspace.inspect', 'code.environment.doctor', 'code.impact.analyze', 'code.git.review',
   'code.diff.prepare', 'code.patch.apply', 'code.test.run', 'code.verify',
+  // One shell command in an opened folder the person turned the terminal on for. Rebuilt in terminalCall.
+  'terminal.exec',
 ]);
+
+/**
+ * Programs a saved allow rule may never name, however it is written: shells and
+ * interpreters, wrappers that run other commands, and anything that deletes,
+ * escalates or reaches the network. The runtime refuses the same names; this
+ * list keeps a bad rule from even being sent. (Mirror of OneClaw's
+ * RULE_FORBIDDEN_PROGRAMS; `python -m <checker>` is the one interpreter form a rule may use.)
+ */
+const RULE_FORBIDDEN = new Set([
+  'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'csh', 'tcsh', 'pwsh', 'powershell', 'cmd',
+  'python', 'python2', 'python3', 'node', 'nodejs', 'deno', 'bun', 'ruby', 'perl', 'php', 'lua', 'tclsh', 'osascript', 'jshell', 'swift', 'Rscript', 'julia',
+  'env', 'xargs', 'find', 'rm', 'mv', 'chmod', 'chown', 'curl', 'wget', 'sed', 'awk', 'perl', 'tee', 'eval', 'source', '.', 'exec',
+  'sudo', 'su', 'doas', 'ssh', 'scp', 'sftp', 'nc', 'ncat', 'socat', 'telnet', 'dd', 'kill', 'killall', 'pkill', 'launchctl', 'systemctl', 'crontab',
+  'npx', 'bunx', 'pnpx', 'dlx', 'docker', 'podman', 'brew', 'pip', 'pip3', 'busybox', 'toybox', 'open', 'defaults', 'security',
+]);
+const PY_CHECKERS = /^(pytest|unittest|mypy|ruff|black|flake8|pylint|isort|compileall|json\.tool|coverage|pyright)$/;
+const RULE_WORD = /^[A-Za-z0-9_.@:+=%,/-]{1,64}$/;
+
+/** The rules the page sent, kept only where they are well-formed and allowed; at most 50. */
+function terminalRules(raw, root) {
+  if (!Array.isArray(raw)) return [];
+  const rules = [];
+  for (const item of raw.slice(0, 200)) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const words = Array.isArray(item.words) ? item.words.map((word) => String(word)) : [];
+    if (!words.length || words.length > 6 || !words.every((word) => RULE_WORD.test(word))) continue;
+    const pythonChecker = /^python[0-9.]*$/.test(words[0]) && words.length === 3 && words[1] === '-m' && PY_CHECKERS.test(words[2]);
+    if (!pythonChecker && RULE_FORBIDDEN.has(words[0])) continue;
+    const scope = item.scope === 'folder' ? 'folder' : 'session';
+    // A folder rule belongs to one folder: this one, or it is dropped.
+    if (scope === 'folder' && path.normalize(String(item.folder || '')) !== path.normalize(root)) continue;
+    rules.push({ words, scope, ...(scope === 'folder' ? { folder: root } : {}), ...(item.network === true ? { network: true } : {}) });
+    if (rules.length >= 50) break;
+  }
+  return rules;
+}
+
+/**
+ * terminal.exec, rebuilt field by field. The terminal must be on, and on for
+ * the opened folder this command runs in; the runtime then decides whether the
+ * command itself may run, needs approval, or is refused.
+ */
+function terminalCall(value, pickedWorkspaces, terminal) {
+  const input = value.input && typeof value.input === 'object' ? value.input : {};
+  if (!terminal || terminal.enabled !== true) throw new Error('The terminal is off. Turn it on in TheOne Desktop settings.');
+  const command = String(input.command ?? '');
+  if (!command.trim()) throw new Error('A terminal command needs a command.');
+  if (command.length > 8000 || command.includes('\0')) throw new Error('That command is too long or malformed.');
+  const target = String(input.workspacePath || '').trim();
+  if (!target || !path.isAbsolute(target)) throw new Error('A terminal command needs the absolute path of an opened folder.');
+  const root = (pickedWorkspaces || []).find((folder) => isInside(folder, target));
+  if (!root) throw new Error('That path is not inside a folder opened in TheOne.');
+  if (!(terminal.folders || []).some((folder) => path.normalize(folder) === path.normalize(root))) {
+    throw new Error('The terminal is not turned on for this folder. Turn it on for the folder in TheOne Desktop settings.');
+  }
+  let cwd;
+  if (input.cwd !== undefined && String(input.cwd).trim()) {
+    const raw = String(input.cwd).trim();
+    if (path.isAbsolute(raw) ? !isInside(root, raw) : raw.split(/[\\/]+/).includes('..')) throw new Error('The working directory must stay inside the opened folder.');
+    cwd = raw;
+  }
+  const approval = input.approval && typeof input.approval === 'object' && /^[0-9a-f]{64}$/.test(String(input.approval.digest || ''))
+    ? { digest: String(input.approval.digest), network: input.approval.network === true }
+    : undefined;
+  const timeout = Number(input.timeoutMs);
+  const session = String(input.sessionId || '');
+  return {
+    action: 'terminal.exec',
+    input: {
+      command,
+      workspacePath: target,
+      ...(cwd ? { cwd } : {}),
+      mode: input.mode === 'plan' ? 'plan' : 'standard',
+      ...(approval ? { approval } : {}),
+      rules: terminalRules(input.rules, root),
+      ...(Number.isFinite(timeout) && timeout > 0 ? { timeoutMs: Math.min(Math.max(Math.floor(timeout), 1000), 600000) } : {}),
+      ...(/^[A-Za-z0-9_:-]{4,120}$/.test(session) ? { sessionId: session } : {}),
+    },
+  };
+}
 
 function directCodeFiles(raw) {
   if (!Array.isArray(raw) || !raw.length || raw.length > 20) throw new Error('A code patch needs 1–20 files.');
@@ -881,10 +963,11 @@ function directCodeFiles(raw) {
   });
 }
 
-function localAgentCall(body, pickedWorkspaces) {
+function localAgentCall(body, pickedWorkspaces, terminal) {
   const value = body && typeof body === 'object' ? body : {};
   const action = String(value.action || '').trim();
   if (!LOCAL_AGENT_ACTIONS.has(action)) throw new Error(`This computer does not run "${action.slice(0, 40)}" for the chat agent.`);
+  if (action === 'terminal.exec') return terminalCall(value, pickedWorkspaces, terminal);
   const input = value.input && typeof value.input === 'object' ? value.input : {};
   const isCodeAction = action.startsWith('code.');
   const target = String(isCodeAction ? (input.workspacePath || input.path) : input.path || '').trim();
