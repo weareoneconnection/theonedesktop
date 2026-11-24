@@ -441,6 +441,17 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     return { ok: true, action: call.action, output: (step && step.output) || result || null };
   });
 
+  // The person pressed stop in a conversation: end the terminal commands running for it. Always
+  // allowed (it only ends things), and it answers 0 rather than failing when nothing is running.
+  handleWithEvent('desktop:terminalStop', async (event, sessionId) => {
+    currentIdentity(event);
+    const id = String(sessionId || '').trim();
+    if (!/^[A-Za-z0-9_:-]{4,200}$/.test(id)) throw new Error('A conversation id is required.');
+    if (runtime.state.status !== 'ready') return { ok: true, stopped: 0 };
+    const answer = await runtime.request('POST', '/v1/terminal/stop', { sessionId: id }).catch(() => null);
+    return { ok: true, stopped: answer && Number.isFinite(Number(answer.stopped)) ? Number(answer.stopped) : 0 };
+  });
+
   handleWithEvent('desktop:pendingTasks', async (event) => {
     if (runtime.state.status !== 'ready') return [];
     const list = await pendingFor(null);
