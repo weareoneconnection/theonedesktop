@@ -864,6 +864,8 @@ const LOCAL_AGENT_ACTIONS = new Set([
   'code.diff.prepare', 'code.patch.apply', 'code.test.run', 'code.verify',
   // One shell command in an opened folder the person turned the terminal on for. Rebuilt in terminalCall.
   'terminal.exec',
+  // The tools of the MCP servers the person turned on, and one call to them. Rebuilt in mcpCall; run in the app, not the runtime.
+  'mcp.list', 'mcp.call',
 ]);
 
 /**
@@ -963,11 +965,37 @@ function directCodeFiles(raw) {
   });
 }
 
+const MCP_SERVER_ID = /^srv_[0-9a-f]{12}$/;
+const MCP_TOOL_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
+
+/**
+ * An MCP action, rebuilt field by field: the page names a server by its id, a tool by its name and
+ * gives arguments. Whether that server and tool may be used is decided where they are kept (the
+ * app's settings and the MCP manager), never by what the page says about them.
+ */
+function mcpCall(action, value) {
+  const input = value.input && typeof value.input === 'object' && !Array.isArray(value.input) ? value.input : {};
+  if (action === 'mcp.list') return { action, input: {} };
+  // Strings only: a number that happens to look like a name is not a name.
+  const server = typeof input.server === 'string' ? input.server : '';
+  if (!MCP_SERVER_ID.test(server)) throw new Error('A tool call names a server by its id.');
+  const tool = typeof input.tool === 'string' ? input.tool : '';
+  if (!MCP_TOOL_NAME.test(tool)) throw new Error('That is not a valid tool name.');
+  const args = input.arguments === undefined ? {} : input.arguments;
+  if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Tool arguments must be an object.');
+  let size;
+  try { size = Buffer.byteLength(JSON.stringify(args), 'utf8'); } catch { throw new Error('Tool arguments must be plain JSON.'); }
+  if (size > 256 * 1024) throw new Error('Tool arguments are too large.');
+  const session = String(input.sessionId || '');
+  return { action, input: { server, tool, arguments: JSON.parse(JSON.stringify(args)), ...(/^[A-Za-z0-9_:-]{4,120}$/.test(session) ? { sessionId: session } : {}) } };
+}
+
 function localAgentCall(body, pickedWorkspaces, terminal) {
   const value = body && typeof body === 'object' ? body : {};
   const action = String(value.action || '').trim();
   if (!LOCAL_AGENT_ACTIONS.has(action)) throw new Error(`This computer does not run "${action.slice(0, 40)}" for the chat agent.`);
   if (action === 'terminal.exec') return terminalCall(value, pickedWorkspaces, terminal);
+  if (action === 'mcp.list' || action === 'mcp.call') return mcpCall(action, value);
   const input = value.input && typeof value.input === 'object' ? value.input : {};
   const isCodeAction = action.startsWith('code.');
   const target = String(isCodeAction ? (input.workspacePath || input.path) : input.path || '').trim();
