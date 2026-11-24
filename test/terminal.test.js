@@ -172,7 +172,8 @@ test('the runtime has the terminal only while the person has it on, and logs eve
 
 test('turning the terminal on is confirmed in a native dialog the page cannot draw; turning it off is not', () => {
   const source = read('bridge.js');
-  assert.match(source, /handle\('desktop:setTerminalEnabled', async \(value\) => \{ if \(value\) await confirmTerminal\(null\); return ops\.setTerminalEnabled\(value\); \}\);/);
+  // A refusal while a run is going comes first (no point asking), then the dialog, then the change.
+  assert.match(source, /handle\('desktop:setTerminalEnabled', async \(value\) => \{ await assertNoRunningWork\(\); if \(value\) await confirmTerminal\(null\); return ops\.setTerminalEnabled\(value\); \}\);/);
   assert.match(source, /handle\('desktop:setTerminalFolder', async \(folder, on\) => \{ if \(on\) await confirmTerminal\(String\(folder \|\| ''\)\);/);
   assert.match(source, /localAgentCall\(body, settings\.workspaces, settings\.terminal\)/);
   assert.match(source, /async setTerminalEnabled\(value\) \{[\s\S]*?await restartRuntime\(\)/);

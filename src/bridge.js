@@ -22,6 +22,7 @@ const { McpManager } = require('./mcp/manager');
 const { approvedToolList, callApprovedTool } = require('./mcp/actions');
 const { validateServerDefinition, describeCommandLine } = require('./mcp/config');
 const { appendFileSync } = require('node:fs');
+const { activeRuns, refusalMessage } = require('./active-work');
 const { ComputerSessions } = require('./computer/session');
 const { RecordStore } = require('./computer/records');
 const { createComputerActions } = require('./computer/actions');
@@ -535,6 +536,15 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     if (window) window.webContents.send('desktop:event', { type: 'runtime', runtime: state, hasApiKey: settings.hasApiKey });
     return state;
   };
+  // Restarting the runtime cuts off a coding run that is going: refuse until it ends. Asked before any
+  // dialog or saved setting, so a refused change leaves nothing half-done. If the runtime cannot say
+  // (not running, not answering), nothing is known to be running and the restart goes ahead.
+  const assertNoRunningWork = async () => {
+    if (runtime.state.status !== 'ready') return;
+    const body = await runtime.request('GET', '/v1/tasks?limit=200').catch(() => null);
+    const count = activeRuns(body && body.items).length;
+    if (count) throw new Error(refusalMessage(count, app.getLocale().toLowerCase().startsWith('en')));
+  };
   const restartRuntime = async () => announce(await runtime.restart(...settings.runtimeArgs()));
   const ops = {
     get: () => ({ hasApiKey: settings.hasApiKey, hasOpenAIKey: settings.hasOpenAIKey, codexUsesApiKey: settings.codexUsesApiKey, runtime: runtime.state, oneClaw: runtime.provenance || null, workspaces: settings.workspaces, terminal: settings.terminal, version: app.getVersion(), platform: process.platform }),
@@ -542,6 +552,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     // turning it on is confirmed in a native dialog (below).
     terminalState: () => ({ ...settings.terminal, auditFile: path.join(app.getPath('userData'), 'terminal-audit.jsonl') }),
     async setTerminalEnabled(value) {
+      await assertNoRunningWork();
       settings.setTerminalEnabled(Boolean(value));
       // The runtime only has the terminal while it is on, so it starts again with the new setting.
       return { terminal: ops.terminalState(), runtime: await restartRuntime() };
@@ -553,12 +564,14 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     async setApiKey(value) {
       const key = String(value || '').trim();
       if (key && !looksLikeAnthropicKey(key)) throw new Error('That does not look like an Anthropic API key (sk-ant-…).');
+      await assertNoRunningWork();
       settings.setApiKey(key);
       return { hasApiKey: settings.hasApiKey, runtime: await restartRuntime() };
     },
     async setOpenAIKey(value) {
       const key = String(value || '').trim();
       if (key && !looksLikeOpenAIKey(key)) throw new Error('That does not look like an OpenAI API key (sk-…).');
+      await assertNoRunningWork();
       settings.setOpenAIKey(key);
       // Without a key there is nothing for Codex to use: back to its own login.
       if (!key) settings.codexUsesApiKey = false;
@@ -566,6 +579,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     },
     async setCodexUsesApiKey(value) {
       if (value && !settings.hasOpenAIKey) throw new Error('Save an OpenAI API key first.');
+      await assertNoRunningWork();
       settings.codexUsesApiKey = Boolean(value);
       return { codexUsesApiKey: settings.codexUsesApiKey, runtime: await restartRuntime() };
     },
@@ -573,6 +587,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     // reasons that have nothing to do with the app — a crash, the machine
     // sleeping, someone killing the process.
     async restartRuntime() {
+      await assertNoRunningWork();
       return { runtime: await restartRuntime(), hasApiKey: settings.hasApiKey };
     },
     async engineSetup(engine) {
@@ -586,6 +601,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   // runtime so it picks it up. One install at a time.
   let codexInstalling = null;
   const installPinnedCodex = async (onProgress) => {
+    await assertNoRunningWork();
     codexInstalling = codexInstalling || installCodex({ dataDir: app.getPath('userData'), onProgress }).finally(() => { codexInstalling = null; });
     const result = await codexInstalling;
     return { binary: result.binary, version: result.version, runtime: await restartRuntime() };
@@ -640,10 +656,10 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   // The TheOne page's settings centre.
   handle('desktop:settings', async () => ops.get());
   handle('desktop:terminalSettings', async () => ops.terminalState());
-  handle('desktop:setTerminalEnabled', async (value) => { if (value) await confirmTerminal(null); return ops.setTerminalEnabled(value); });
+  handle('desktop:setTerminalEnabled', async (value) => { await assertNoRunningWork(); if (value) await confirmTerminal(null); return ops.setTerminalEnabled(value); });
   handle('desktop:setTerminalFolder', async (folder, on) => { if (on) await confirmTerminal(String(folder || '')); return ops.setTerminalFolder(String(folder || ''), on); });
-  handle('desktop:setApiKey', async (value) => { await confirmKeyChange('Anthropic', value); return ops.setApiKey(value); });
-  handle('desktop:setOpenAIKey', async (value) => { await confirmKeyChange('OpenAI', value); return ops.setOpenAIKey(value); });
+  handle('desktop:setApiKey', async (value) => { await assertNoRunningWork(); await confirmKeyChange('Anthropic', value); return ops.setApiKey(value); });
+  handle('desktop:setOpenAIKey', async (value) => { await assertNoRunningWork(); await confirmKeyChange('OpenAI', value); return ops.setOpenAIKey(value); });
   handle('desktop:setCodexUsesApiKey', async (value) => ops.setCodexUsesApiKey(value));
   handle('desktop:restartRuntime', async () => ops.restartRuntime());
   handle('desktop:installCodex', async () => installPinnedCodex((progress) => {
