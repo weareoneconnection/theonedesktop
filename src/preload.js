@@ -43,6 +43,17 @@ if (allowed.includes(window.location.origin)) {
     setTerminalFolder: (folder, on) => ipcRenderer.invoke('desktop:setTerminalFolder', folder, on),
     /** Stop the terminal commands running for a conversation. */
     terminalStop: (sessionId) => ipcRenderer.invoke('desktop:terminalStop', sessionId),
+    /**
+     * MCP servers (programs that give TheOne more tools). Adding one, turning it on and choosing
+     * its tools are each confirmed in a native dialog; removing and turning off are not.
+     */
+    mcpServers: () => ipcRenderer.invoke('desktop:mcpServers'),
+    mcpAddServer: (definition) => ipcRenderer.invoke('desktop:mcpAddServer', definition),
+    mcpRemoveServer: (id) => ipcRenderer.invoke('desktop:mcpRemoveServer', id),
+    mcpSetEnabled: (id, on) => ipcRenderer.invoke('desktop:mcpSetEnabled', id, on),
+    mcpDiscover: (id) => ipcRenderer.invoke('desktop:mcpDiscover', id),
+    mcpApproveTools: (id, names, digest) => ipcRenderer.invoke('desktop:mcpApproveTools', id, names, digest),
+    mcpReset: (id) => ipcRenderer.invoke('desktop:mcpReset', id),
     installCodex: () => ipcRenderer.invoke('desktop:installCodex'),
     settingsInApp: () => ipcRenderer.invoke('desktop:settingsInApp'),
     createTask: (input) => ipcRenderer.invoke('desktop:createTask', input),

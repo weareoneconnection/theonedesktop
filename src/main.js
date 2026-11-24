@@ -67,6 +67,7 @@ let runtime;
 let updater;
 let preview;
 let devServers;
+let mcpManager;
 let quitting = false;
 
 function send(event) {
@@ -351,7 +352,8 @@ app.whenReady().then(async () => {
   if (devApiKey) settings.devApiKey = devApiKey;
   preview = createPreview({ getWindow: () => mainWindow, getWorkspaces: () => settings.workspaces, send, log });
   devServers = createDevServers({ getWorkspaces: () => settings.workspaces, send, log });
-  registerBridge({ runtime, settings, getWindow: () => mainWindow, openSettings, onSettingsInApp: () => { settingsInApp = true; }, log, preview, devServers });
+  const bridge = registerBridge({ runtime, settings, getWindow: () => mainWindow, openSettings, onSettingsInApp: () => { settingsInApp = true; }, log, preview, devServers });
+  mcpManager = bridge && bridge.mcp;
   let lastUpdateStatus = '';
   updater = createUpdater({
     app,
@@ -382,6 +384,7 @@ app.on('before-quit', async (event) => {
   event.preventDefault();
   quitting = true;
   if (devServers) devServers.stopAll();
+  if (mcpManager) await mcpManager.stopAll().catch(() => undefined);
   await runtime.stop().catch(() => undefined);
   app.quit();
 });

@@ -9,6 +9,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 
 class Settings {
   constructor({ dataDir, safeStorage }) {
@@ -70,6 +71,67 @@ class Settings {
     this.data.terminal = { enabled: current.enabled, folders };
     this.save();
     return this.terminal;
+  }
+
+  // --------------------------------------------------------------- MCP servers ---
+  // Programs the person added to give TheOne more tools. Kept on this computer only. A server's
+  // environment values (tokens) are encrypted like the API keys; what the person approved of it —
+  // which tools, and the digest of exactly the tool list they were shown — is stored with it.
+
+  /** The servers without their secrets: what a settings page may see. */
+  get mcpServers() {
+    const saved = this.data.mcp && Array.isArray(this.data.mcp.servers) ? this.data.mcp.servers : [];
+    return saved.filter((server) => server && typeof server.id === 'string' && typeof server.name === 'string').map((server) => ({
+      id: server.id, name: server.name, command: String(server.command || ''), args: Array.isArray(server.args) ? server.args.map(String) : [],
+      envNames: Object.keys(server.env && typeof server.env === 'object' ? server.env : {}), enabled: server.enabled === true,
+      approvedDigest: typeof server.approvedDigest === 'string' ? server.approvedDigest : '',
+      enabledTools: Array.isArray(server.enabledTools) ? server.enabledTools.map(String) : [],
+    }));
+  }
+
+  mcpEnv(id) {
+    const server = ((this.data.mcp && this.data.mcp.servers) || []).find((item) => item && item.id === id);
+    const out = {};
+    for (const [key, stored] of Object.entries((server && server.env) || {})) out[key] = this.decrypt(stored);
+    return out;
+  }
+
+  /** What the MCP manager reads. */
+  mcpStore() {
+    return { list: () => this.mcpServers, get: (id) => this.mcpServers.find((server) => server.id === id) || null, env: (id) => this.mcpEnv(id) };
+  }
+
+  /** `def` is a validated definition (mcp/config.js). A server starts turned off, with nothing approved. */
+  addMcpServer(def) {
+    const env = {};
+    for (const [key, value] of Object.entries(def.envValues || {})) env[key] = this.encrypt(value);
+    const id = `srv_${crypto.randomBytes(6).toString('hex')}`;
+    const servers = (this.data.mcp && this.data.mcp.servers) || [];
+    this.data.mcp = { servers: [...servers, { id, name: def.name, command: def.command, args: def.args, env, enabled: false, approvedDigest: '', enabledTools: [] }] };
+    this.save();
+    return id;
+  }
+
+  removeMcpServer(id) {
+    const servers = (this.data.mcp && this.data.mcp.servers) || [];
+    this.data.mcp = { servers: servers.filter((server) => server.id !== id) };
+    this.save();
+  }
+
+  updateMcpServer(id, change) {
+    const servers = (this.data.mcp && this.data.mcp.servers) || [];
+    if (!servers.some((server) => server.id === id)) throw new Error('That server does not exist.');
+    this.data.mcp = { servers: servers.map((server) => (server.id === id ? { ...server, ...change } : server)) };
+    this.save();
+  }
+
+  setMcpEnabled(id, enabled) {
+    // Turning a server off forgets the approval: it must be looked at again when it is turned on.
+    this.updateMcpServer(id, enabled ? { enabled: true } : { enabled: false, approvedDigest: '', enabledTools: [] });
+  }
+
+  setMcpTools(id, enabledTools, approvedDigest) {
+    this.updateMcpServer(id, { enabledTools: [...new Set(enabledTools.map(String))], approvedDigest: String(approvedDigest || '') });
   }
 
   get hasOpenAIKey() {

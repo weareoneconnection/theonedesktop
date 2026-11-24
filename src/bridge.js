@@ -12,11 +12,15 @@ const { access, readFile } = require('node:fs/promises');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { dialog, ipcMain, Notification, shell, app } = require('electron');
-const { buildLocalDeliverInput, buildLocalMergeInput, buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
+const { FALLBACK_PATH, mergePath, buildLocalDeliverInput, buildLocalMergeInput, buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
 const { buildAttestation, loadOrCreateKey } = require('./attestation');
 const { bridgeContract } = require('./bridge-contract');
 const { installCodex } = require('./codex-install');
+const { loginShellPath } = require('./runtime');
+const { McpManager } = require('./mcp/manager');
+const { validateServerDefinition, describeCommandLine } = require('./mcp/config');
+const { appendFileSync } = require('node:fs');
 const { createTaskOwnershipStore, identityKey } = require('./task-ownership');
 const { buildTaskReceipt, taskReceiptStateDigest } = require('./task-receipt');
 
@@ -656,7 +660,95 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   })));
   ipcMain.handle('settings:forgetWorkspace', local((_event, folder) => settings.removeWorkspace(String(folder || ''))));
 
-  return { info };
+  // ------------------------------------------------------------------- MCP ---
+  // Servers the person added. The page can list, add, remove and ask what a server offers, but
+  // adding, turning on and approving tools are each confirmed in a native dialog the page cannot
+  // draw or click: a page that went wrong cannot run a program on this computer or widen what a
+  // server may do. Turning off and removing ask nothing (the safe direction).
+  let mcpPath = process.env.PATH;
+  loginShellPath().then((value) => { mcpPath = mergePath(value, process.env.PATH, FALLBACK_PATH); }).catch(() => undefined);
+  const mcpAuditFile = path.join(app.getPath('userData'), 'mcp-audit.jsonl');
+  const mcp = new McpManager({
+    store: settings.mcpStore(), dataDir: app.getPath('userData'), pathValue: () => mcpPath,
+    audit: (entry) => { try { appendFileSync(mcpAuditFile, `${JSON.stringify(entry)}\n`, { mode: 0o600 }); } catch { /* the call still ran or was refused */ } },
+  });
+  // What the person was last shown for each server, so approving tools can only approve exactly that.
+  const discovered = new Map();
+  const confirmMcp = async (message, detail, button) => {
+    const english = app.getLocale().toLowerCase().startsWith('en');
+    const window = getWindow();
+    const options = { type: 'warning', buttons: [button, english ? 'Cancel' : '取消'], defaultId: 1, cancelId: 1, message, detail };
+    const { response } = window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
+    if (response !== 0) throw new Error(english ? 'Cancelled.' : '已取消。');
+  };
+  const mcpView = (server) => ({ ...server, status: mcp.status(server.id) });
+  const isEnglish = () => app.getLocale().toLowerCase().startsWith('en');
+  const known = (id) => { const server = settings.mcpStore().get(String(id || '')); if (!server) throw new Error('That server does not exist.'); return server; };
+
+  handle('desktop:mcpServers', async () => settings.mcpServers.map(mcpView));
+  handle('desktop:mcpAddServer', async (input) => {
+    const def = validateServerDefinition(input, settings.mcpServers);
+    const shown = describeCommandLine(def);
+    await confirmMcp(
+      isEnglish() ? `Add the MCP server “${def.name}”?` : `添加 MCP 服务器“${def.name}”？`,
+      isEnglish()
+        ? `It is a program that runs on this computer as you whenever it is used:\n\n${shown.line}${shown.env.length ? `\n\nEnvironment variables: ${shown.env.join(', ')}` : ''}\n\nIt is added turned off; you turn it on, and choose its tools, separately. Requested from TheOne settings.`
+        : `它是一个程序，每次使用时以你的身份在这台电脑上运行：\n\n${shown.line}${shown.env.length ? `\n\n环境变量：${shown.env.join('、')}` : ''}\n\n添加后默认关闭；开启和选择它的工具是另外的步骤。来自 TheOne 设置。`,
+      isEnglish() ? 'Add' : '添加',
+    );
+    const id = settings.addMcpServer(def);
+    return mcpView(settings.mcpServers.find((server) => server.id === id));
+  });
+  handle('desktop:mcpRemoveServer', async (id) => {
+    const server = known(id);
+    await mcp.stop(server.id).catch(() => undefined);
+    settings.removeMcpServer(server.id);
+    discovered.delete(server.id);
+    return { ok: true };
+  });
+  handle('desktop:mcpSetEnabled', async (id, on) => {
+    const server = known(id);
+    if (on) {
+      const shown = describeCommandLine(server);
+      await confirmMcp(
+        isEnglish() ? `Turn on “${server.name}”?` : `开启“${server.name}”？`,
+        isEnglish() ? `This runs on this computer as you:\n\n${shown.line}` : `这会以你的身份在这台电脑上运行：\n\n${shown.line}`,
+        isEnglish() ? 'Turn on' : '开启',
+      );
+    }
+    settings.setMcpEnabled(server.id, Boolean(on));
+    if (!on) { await mcp.stop(server.id).catch(() => undefined); discovered.delete(server.id); }
+    mcp.reset(server.id);
+    return mcpView(settings.mcpServers.find((item) => item.id === server.id));
+  });
+  handle('desktop:mcpDiscover', async (id) => {
+    const server = known(id);
+    const found = await mcp.discover(server.id);
+    discovered.set(server.id, { digest: found.digest, names: new Set(found.tools.map((tool) => tool.name)), at: Date.now() });
+    return { tools: found.tools, dropped: found.dropped, digest: found.digest, serverInfo: found.serverInfo };
+  });
+  handle('desktop:mcpApproveTools', async (id, names, digest) => {
+    const server = known(id);
+    const shown = discovered.get(server.id);
+    // Only exactly what was just listed, and only recently: a page cannot approve a list it never showed.
+    if (!shown || shown.digest !== String(digest || '') || Date.now() - shown.at > 15 * 60_000) throw new Error('Look at the server\'s tools again before choosing.');
+    const chosen = Array.isArray(names) ? [...new Set(names.map(String))] : [];
+    if (chosen.length > 40 || chosen.some((name) => !shown.names.has(name))) throw new Error('One of those tools is not in the list you were shown.');
+    if (chosen.length) {
+      await confirmMcp(
+        isEnglish() ? `Let TheOne use ${chosen.length} tool${chosen.length === 1 ? '' : 's'} of “${server.name}”?` : `允许 TheOne 使用“${server.name}”的 ${chosen.length} 个工具？`,
+        `${chosen.join('\n')}\n\n${isEnglish() ? 'Each call still asks you first unless you allow it on the approval card. If the server later changes its tools, they stop until you look again.' : '每次调用仍会先问你，除非你在批准卡片上允许。如果服务器之后改了工具，它们会暂停，直到你重新查看。'}`,
+        isEnglish() ? 'Allow' : '允许',
+      );
+    }
+    settings.setMcpTools(server.id, chosen, shown.digest);
+    mcp.reset(server.id);
+    await mcp.stop(server.id).catch(() => undefined);
+    return mcpView(settings.mcpServers.find((item) => item.id === server.id));
+  });
+  handle('desktop:mcpReset', async (id) => { const server = known(id); mcp.reset(server.id); return mcpView(settings.mcpServers.find((item) => item.id === server.id)); });
+
+  return { info, mcp };
 }
 
 module.exports = { registerBridge };
