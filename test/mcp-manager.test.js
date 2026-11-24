@@ -285,7 +285,7 @@ test('tools can only be approved from the list that was just shown', () => {
   assert.match(bridge, /shown\.digest !== String\(digest \|\| ''\)/);
   assert.match(bridge, /Date\.now\(\) - shown\.at > 15 \* 60_000/);
   assert.match(bridge, /chosen\.some\(\(name\) => !shown\.names\.has\(name\)\)/);
-  assert.match(bridge, /settings\.setMcpTools\(server\.id, chosen, shown\.digest\)/, 'the digest stored is the one shown, never one the page names');
+  assert.match(bridge, /settings\.setMcpTools\(server\.id, chosen, shown\.digest, shown\.tools\)/, 'the digest stored is the one shown, never one the page names');
 });
 
 test('the confirmation names the program, and a server is added turned off', () => {

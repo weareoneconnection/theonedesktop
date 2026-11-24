@@ -19,6 +19,7 @@ const { bridgeContract } = require('./bridge-contract');
 const { installCodex } = require('./codex-install');
 const { loginShellPath } = require('./runtime');
 const { McpManager } = require('./mcp/manager');
+const { approvedToolList, callApprovedTool } = require('./mcp/actions');
 const { validateServerDefinition, describeCommandLine } = require('./mcp/config');
 const { appendFileSync } = require('node:fs');
 const { createTaskOwnershipStore, identityKey } = require('./task-ownership');
@@ -429,13 +430,17 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
 
   // A read the chat agent asked this Mac for: the runtime answers it, the
   // allowlist and the folder gate decide whether it may.
+  // Set once the MCP manager exists (below); the handler only runs later, from the page.
+  let runMcpAction = null;
   handleWithEvent('desktop:runAction', async (event, body) => {
     // Opened folders are device-level capabilities, but using them is still
     // an account action. Never let a renderer keep reading local files after
     // logout or while an account switch has not finished binding.
     currentIdentity(event);
-    if (runtime.state.status !== 'ready') throw new Error('The local runtime is not running.');
     const call = localAgentCall(body, settings.workspaces, settings.terminal);
+    // MCP tools run in this app, not in the local runtime: nothing here needs the runtime to be up.
+    if (call.action === 'mcp.list' || call.action === 'mcp.call') return runMcpAction(call);
+    if (runtime.state.status !== 'ready') throw new Error('The local runtime is not running.');
     const result = await runtime.request('POST', '/v1/actions/execute', {
       action: call.action,
       approvalMode: 'auto',
@@ -682,6 +687,11 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     if (response !== 0) throw new Error(english ? 'Cancelled.' : '已取消。');
   };
   const mcpView = (server) => ({ ...server, status: mcp.status(server.id) });
+  // What the chat asks (policy.js has already rebuilt it): the tools it may use, or one use of one.
+  runMcpAction = async (call) => {
+    if (call.action === 'mcp.list') return { ok: true, action: call.action, output: approvedToolList(settings.mcpServers, (id) => mcp.status(id)) };
+    return { ok: true, action: call.action, output: await callApprovedTool(mcp, call.input, { by: call.input.sessionId || 'chat' }) };
+  };
   const isEnglish = () => app.getLocale().toLowerCase().startsWith('en');
   const known = (id) => { const server = settings.mcpStore().get(String(id || '')); if (!server) throw new Error('That server does not exist.'); return server; };
 
@@ -724,7 +734,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   handle('desktop:mcpDiscover', async (id) => {
     const server = known(id);
     const found = await mcp.discover(server.id);
-    discovered.set(server.id, { digest: found.digest, names: new Set(found.tools.map((tool) => tool.name)), at: Date.now() });
+    discovered.set(server.id, { digest: found.digest, names: new Set(found.tools.map((tool) => tool.name)), tools: found.tools, at: Date.now() });
     return { tools: found.tools, dropped: found.dropped, digest: found.digest, serverInfo: found.serverInfo };
   });
   handle('desktop:mcpApproveTools', async (id, names, digest) => {
@@ -741,7 +751,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
         isEnglish() ? 'Allow' : '允许',
       );
     }
-    settings.setMcpTools(server.id, chosen, shown.digest);
+    settings.setMcpTools(server.id, chosen, shown.digest, shown.tools);
     mcp.reset(server.id);
     await mcp.stop(server.id).catch(() => undefined);
     return mcpView(settings.mcpServers.find((item) => item.id === server.id));

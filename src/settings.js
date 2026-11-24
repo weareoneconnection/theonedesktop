@@ -86,6 +86,8 @@ class Settings {
       envNames: Object.keys(server.env && typeof server.env === 'object' ? server.env : {}), enabled: server.enabled === true,
       approvedDigest: typeof server.approvedDigest === 'string' ? server.approvedDigest : '',
       enabledTools: Array.isArray(server.enabledTools) ? server.enabledTools.map(String) : [],
+      // The definitions the person was shown for the tools they turned on: what the model is given.
+      approvedTools: Array.isArray(server.approvedTools) ? server.approvedTools.filter((tool) => tool && typeof tool.name === 'string').map((tool) => ({ name: tool.name, description: String(tool.description || ''), inputSchema: tool.inputSchema && typeof tool.inputSchema === 'object' ? tool.inputSchema : { type: 'object' } })) : [],
     }));
   }
 
@@ -127,11 +129,14 @@ class Settings {
 
   setMcpEnabled(id, enabled) {
     // Turning a server off forgets the approval: it must be looked at again when it is turned on.
-    this.updateMcpServer(id, enabled ? { enabled: true } : { enabled: false, approvedDigest: '', enabledTools: [] });
+    this.updateMcpServer(id, enabled ? { enabled: true } : { enabled: false, approvedDigest: '', enabledTools: [], approvedTools: [] });
   }
 
-  setMcpTools(id, enabledTools, approvedDigest) {
-    this.updateMcpServer(id, { enabledTools: [...new Set(enabledTools.map(String))], approvedDigest: String(approvedDigest || '') });
+  /** `definitions` are the tool definitions of exactly the list that was shown; only those turned on are kept. */
+  setMcpTools(id, enabledTools, approvedDigest, definitions = []) {
+    const names = [...new Set(enabledTools.map(String))];
+    const approvedTools = definitions.filter((tool) => names.includes(tool.name)).map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
+    this.updateMcpServer(id, { enabledTools: names, approvedDigest: String(approvedDigest || ''), approvedTools });
   }
 
   get hasOpenAIKey() {
