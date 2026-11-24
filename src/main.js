@@ -9,7 +9,7 @@
  * for what the page is allowed to ask for.
  */
 
-const { app, BrowserWindow, Menu, Notification, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, globalShortcut, powerMonitor, safeStorage, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { authLinkCode, deepLinkPath, isAllowedOrigin, signInPair, signInStart, startUrl, updateMenuItem } = require('./policy');
@@ -68,6 +68,7 @@ let updater;
 let preview;
 let devServers;
 let mcpManager;
+let computerControl;
 let quitting = false;
 
 function send(event) {
@@ -352,8 +353,19 @@ app.whenReady().then(async () => {
   if (devApiKey) settings.devApiKey = devApiKey;
   preview = createPreview({ getWindow: () => mainWindow, getWorkspaces: () => settings.workspaces, send, log });
   devServers = createDevServers({ getWorkspaces: () => settings.workspaces, send, log });
-  const bridge = registerBridge({ runtime, settings, getWindow: () => mainWindow, openSettings, onSettingsInApp: () => { settingsInApp = true; }, log, preview, devServers });
+  // The emergency stop for computer use: a shortcut that exists only while something may be looked at, and
+  // the screen locking or the computer sleeping, which forget every approval.
+  const STOP_KEY = 'CommandOrControl+Alt+Escape';
+  const onComputerActive = (active) => {
+    try {
+      if (active) globalShortcut.register(STOP_KEY, () => { if (computerControl) computerControl.stop(); });
+      else globalShortcut.unregister(STOP_KEY);
+    } catch (error) { log(`computer stop shortcut: ${error instanceof Error ? error.message : String(error)}`); }
+  };
+  const bridge = registerBridge({ runtime, settings, getWindow: () => mainWindow, openSettings, onSettingsInApp: () => { settingsInApp = true; }, log, preview, devServers, onComputerActive });
   mcpManager = bridge && bridge.mcp;
+  computerControl = bridge && bridge.computer;
+  for (const event of ['lock-screen', 'suspend']) powerMonitor.on(event, () => { if (computerControl) computerControl.interrupt(); });
   let lastUpdateStatus = '';
   updater = createUpdater({
     app,
@@ -385,6 +397,7 @@ app.on('before-quit', async (event) => {
   quitting = true;
   if (devServers) devServers.stopAll();
   if (mcpManager) await mcpManager.stopAll().catch(() => undefined);
+  try { globalShortcut.unregisterAll(); } catch { /* quitting anyway */ }
   await runtime.stop().catch(() => undefined);
   app.quit();
 });
