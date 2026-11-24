@@ -22,6 +22,11 @@ const { McpManager } = require('./mcp/manager');
 const { approvedToolList, callApprovedTool } = require('./mcp/actions');
 const { validateServerDefinition, describeCommandLine } = require('./mcp/config');
 const { appendFileSync } = require('node:fs');
+const { ComputerSessions } = require('./computer/session');
+const { RecordStore } = require('./computer/records');
+const { createComputerActions } = require('./computer/actions');
+const { unsupportedProvider } = require('./computer/provider');
+const { validateApp, AppError } = require('./computer/apps');
 const { createTaskOwnershipStore, identityKey } = require('./task-ownership');
 const { buildTaskReceipt, taskReceiptStateDigest } = require('./task-receipt');
 
@@ -71,7 +76,7 @@ async function inspectWorkspace(folder) {
   };
 }
 
-function registerBridge({ runtime, settings, getWindow, openSettings, onSettingsInApp, log, preview, devServers }) {
+function registerBridge({ runtime, settings, getWindow, openSettings, onSettingsInApp, log, preview, devServers, computerOptions = {}, onComputerActive = null }) {
   const guard = (handler) => async (event, ...args) => {
     const url = event.senderFrame ? event.senderFrame.url : '';
     if (!isAllowedOrigin(url)) {
@@ -432,6 +437,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   // allowlist and the folder gate decide whether it may.
   // Set once the MCP manager exists (below); the handler only runs later, from the page.
   let runMcpAction = null;
+  let runComputerAction = null;
   handleWithEvent('desktop:runAction', async (event, body) => {
     // Opened folders are device-level capabilities, but using them is still
     // an account action. Never let a renderer keep reading local files after
@@ -440,6 +446,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     const call = localAgentCall(body, settings.workspaces, settings.terminal);
     // MCP tools run in this app, not in the local runtime: nothing here needs the runtime to be up.
     if (call.action === 'mcp.list' || call.action === 'mcp.call') return runMcpAction(call);
+    if (call.action === 'computer.state' || call.action === 'computer.screenshot') return runComputerAction(call);
     if (runtime.state.status !== 'ready') throw new Error('The local runtime is not running.');
     const result = await runtime.request('POST', '/v1/actions/execute', {
       action: call.action,
@@ -758,7 +765,55 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   });
   handle('desktop:mcpReset', async (id) => { const server = known(id); mcp.reset(server.id); return mcpView(settings.mcpServers.find((item) => item.id === server.id)); });
 
-  return { info, mcp };
+  // ---------------------------------------------------------- computer use ---
+  // Looking at applications the person chose. Turning it on and adding an application are each
+  // confirmed in a native dialog; turning off, removing, stopping and clearing records ask nothing.
+  // What can capture a window is `provider`: until one is verified on a real Mac this says "not
+  // supported", every look is refused with that reason, and nothing is ever captured.
+  const computerRecords = new RecordStore({ dir: path.join(app.getPath('userData'), 'computer'), retentionDays: settings.computer.retentionDays });
+  const computerSessions = new ComputerSessions({ onActive: (active) => { if (onComputerActive) onComputerActive(active); } });
+  const computerProvider = computerOptions.provider || unsupportedProvider;
+  const computerActions = createComputerActions({ settings: () => settings.computer, provider: computerProvider, sessions: computerSessions, records: computerRecords });
+  runComputerAction = async (call) => {
+    const output = call.action === 'computer.state' ? await computerActions.state(call.input) : await computerActions.screenshot(call.input);
+    return { ok: true, action: call.action, output };
+  };
+  const computerView = () => ({ ...settings.computer, captureSupported: computerProvider.supported === true, halted: computerSessions.halted, records: computerRecords.count() });
+  handle('desktop:computerState', async () => computerView());
+  handle('desktop:computerSetEnabled', async (on) => {
+    if (on) {
+      await confirmMcp(
+        isEnglish() ? 'Let TheOne look at applications you choose?' : '允许 TheOne 查看你选定的应用吗？',
+        isEnglish()
+          ? 'TheOne will be able to see the window of each application you add, one at a time. A picture it looks at is sent to the AI model so it can read it. It never sees the whole screen, cannot click or type, and every look is recorded on this computer. You can stop it at any time.'
+          : '你逐个添加的应用，TheOne 才能看到它的窗口。它看过的图片会发给 AI 模型，模型才能读懂。它看不到整个屏幕，也不能点击或输入；每一次查看都会记录在这台电脑上。你随时可以叫停。',
+        isEnglish() ? 'Turn on' : '开启',
+      );
+      computerSessions.release();
+    } else {
+      computerSessions.stopAll();
+    }
+    settings.setComputerEnabled(Boolean(on));
+    return computerView();
+  });
+  handle('desktop:computerAddApp', async (name) => {
+    let clean;
+    try { clean = validateApp(name); } catch (error) { if (error instanceof AppError) throw new Error(error.message); throw error; }
+    if (!settings.computer.enabled) throw new Error(isEnglish() ? 'Turn computer use on first.' : '请先开启电脑使用。');
+    await confirmMcp(
+      isEnglish() ? `Let TheOne look at "${clean}"?` : `允许 TheOne 查看“${clean}”吗？`,
+      isEnglish() ? 'Anything shown in that application\'s window can be seen, including private messages or documents open in it. The first look in each conversation asks you again.' : '这个应用窗口里显示的任何内容都可能被看到，包括里面打开的私人消息或文档。每个对话里第一次查看时还会再问你。',
+      isEnglish() ? 'Allow' : '允许',
+    );
+    settings.addComputerApp(clean);
+    return computerView();
+  });
+  handle('desktop:computerRemoveApp', async (name) => { settings.removeComputerApp(String(name || '')); computerSessions.interrupt(); return computerView(); });
+  handle('desktop:computerStop', async () => { computerSessions.stopAll(); return computerView(); });
+  handle('desktop:computerClearRecords', async () => { computerRecords.clear(); return computerView(); });
+  const computer = { stop: () => computerSessions.stopAll(), interrupt: () => computerSessions.interrupt(), sessions: computerSessions };
+
+  return { info, mcp, computer };
 }
 
 module.exports = { registerBridge };

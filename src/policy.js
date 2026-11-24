@@ -866,6 +866,8 @@ const LOCAL_AGENT_ACTIONS = new Set([
   'terminal.exec',
   // The tools of the MCP servers the person turned on, and one call to them. Rebuilt in mcpCall; run in the app, not the runtime.
   'mcp.list', 'mcp.call',
+  // How an application the person allowed looks, and a picture of its window. Rebuilt in computerCall; run in the app.
+  'computer.state', 'computer.screenshot',
 ]);
 
 /**
@@ -990,12 +992,29 @@ function mcpCall(action, value) {
   return { action, input: { server, tool, arguments: JSON.parse(JSON.stringify(args)), ...(/^[A-Za-z0-9_:-]{4,120}$/.test(session) ? { sessionId: session } : {}) } };
 }
 
+/**
+ * A computer-use action, rebuilt field by field: an application's name, the conversation, and whether
+ * the person approved this look. Which applications may be looked at is decided in the app's settings.
+ */
+function computerCall(action, value) {
+  const input = value.input && typeof value.input === 'object' && !Array.isArray(value.input) ? value.input : {};
+  const raw = typeof input.app === 'string' ? input.app : '';
+  const app = raw.replace(/ +/g, ' ').trim();
+  // Checked as written: a newline or tab is refused, not turned into a space.
+  // eslint-disable-next-line no-control-regex
+  if (!app || app.length > 80 || /[\u0000-\u001f\u007f/\\]/.test(raw)) throw new Error('A screen action names one application.');
+  const session = String(input.sessionId || '');
+  if (action === 'computer.state') return { action, input: { app } };
+  return { action, input: { app, ...(/^[A-Za-z0-9_:-]{4,120}$/.test(session) ? { sessionId: session } : {}), ...(input.approved === true ? { approved: true } : {}) } };
+}
+
 function localAgentCall(body, pickedWorkspaces, terminal) {
   const value = body && typeof body === 'object' ? body : {};
   const action = String(value.action || '').trim();
   if (!LOCAL_AGENT_ACTIONS.has(action)) throw new Error(`This computer does not run "${action.slice(0, 40)}" for the chat agent.`);
   if (action === 'terminal.exec') return terminalCall(value, pickedWorkspaces, terminal);
   if (action === 'mcp.list' || action === 'mcp.call') return mcpCall(action, value);
+  if (action === 'computer.state' || action === 'computer.screenshot') return computerCall(action, value);
   const input = value.input && typeof value.input === 'object' ? value.input : {};
   const isCodeAction = action.startsWith('code.');
   const target = String(isCodeAction ? (input.workspacePath || input.path) : input.path || '').trim();
