@@ -54,6 +54,16 @@ if (allowed.includes(window.location.origin)) {
     mcpDiscover: (id) => ipcRenderer.invoke('desktop:mcpDiscover', id),
     mcpApproveTools: (id, names, digest) => ipcRenderer.invoke('desktop:mcpApproveTools', id, names, digest),
     mcpReset: (id) => ipcRenderer.invoke('desktop:mcpReset', id),
+    /**
+     * Computer use (TheOne looking at applications you chose). Turning it on and adding an application
+     * are each confirmed in a native dialog; stopping, removing and clearing records are not.
+     */
+    computerState: () => ipcRenderer.invoke('desktop:computerState'),
+    computerSetEnabled: (on) => ipcRenderer.invoke('desktop:computerSetEnabled', on),
+    computerAddApp: (name) => ipcRenderer.invoke('desktop:computerAddApp', name),
+    computerRemoveApp: (name) => ipcRenderer.invoke('desktop:computerRemoveApp', name),
+    computerStop: () => ipcRenderer.invoke('desktop:computerStop'),
+    computerClearRecords: () => ipcRenderer.invoke('desktop:computerClearRecords'),
     installCodex: () => ipcRenderer.invoke('desktop:installCodex'),
     settingsInApp: () => ipcRenderer.invoke('desktop:settingsInApp'),
     createTask: (input) => ipcRenderer.invoke('desktop:createTask', input),

@@ -73,6 +73,40 @@ class Settings {
     return this.terminal;
   }
 
+  // ---------------------------------------------------------------- computer use ---
+  // Letting TheOne look at chosen applications: off until the person turns it on here, and then
+  // only the applications they add one by one. Both are confirmed in a native dialog (bridge.js).
+
+  get computer() {
+    const saved = this.data.computer && typeof this.data.computer === 'object' ? this.data.computer : {};
+    const apps = (Array.isArray(saved.apps) ? saved.apps : []).filter((app) => typeof app === 'string' && app && app.length <= 80);
+    return { enabled: saved.enabled === true, apps: [...new Set(apps)].slice(0, 20), retentionDays: Number.isInteger(saved.retentionDays) && saved.retentionDays >= 1 && saved.retentionDays <= 30 ? saved.retentionDays : 7 };
+  }
+
+  /** Turning it off forgets the apps: they have to be added again, each with its own confirmation. */
+  setComputerEnabled(enabled) {
+    const current = this.computer;
+    this.data.computer = { enabled: Boolean(enabled), apps: enabled ? current.apps : [], retentionDays: current.retentionDays };
+    this.save();
+    return this.computer;
+  }
+
+  /** `name` is a validated application name (computer/apps.js). */
+  addComputerApp(name) {
+    const current = this.computer;
+    if (!current.enabled) throw new Error('Computer use is off.');
+    this.data.computer = { ...current, apps: [name, ...current.apps.filter((app) => app !== name)].slice(0, 20) };
+    this.save();
+    return this.computer;
+  }
+
+  removeComputerApp(name) {
+    const current = this.computer;
+    this.data.computer = { ...current, apps: current.apps.filter((app) => app !== name) };
+    this.save();
+    return this.computer;
+  }
+
   // --------------------------------------------------------------- MCP servers ---
   // Programs the person added to give TheOne more tools. Kept on this computer only. A server's
   // environment values (tokens) are encrypted like the API keys; what the person approved of it —
