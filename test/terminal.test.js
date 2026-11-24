@@ -188,3 +188,13 @@ test('the bridge advertises the terminal as a capability', () => {
   assert.ok(SUPPORTED_CAPABILITIES.includes('terminalV1'));
   assert.ok(KNOWN_CAPABILITIES.includes('terminalV1'));
 });
+
+test('stopping a conversation\'s terminal commands is wired from the page to the runtime', () => {
+  const bridge = read('bridge.js');
+  assert.match(bridge, /handleWithEvent\('desktop:terminalStop', async \(event, sessionId\) => \{/);
+  assert.match(bridge, /runtime\.request\('POST', '\/v1\/terminal\/stop', \{ sessionId: id \}\)/);
+  // Only a well-formed conversation id is sent on; a stopped runtime answers 0, not an error.
+  assert.match(bridge, /\^\[A-Za-z0-9_:-\]\{4,200\}\$/);
+  assert.match(bridge, /if \(runtime\.state\.status !== 'ready'\) return \{ ok: true, stopped: 0 \};/);
+  assert.match(read('preload.js'), /terminalStop: \(sessionId\) => ipcRenderer\.invoke\('desktop:terminalStop', sessionId\)/);
+});

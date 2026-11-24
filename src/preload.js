@@ -41,6 +41,8 @@ if (allowed.includes(window.location.origin)) {
     terminalSettings: () => ipcRenderer.invoke('desktop:terminalSettings'),
     setTerminalEnabled: (value) => ipcRenderer.invoke('desktop:setTerminalEnabled', value),
     setTerminalFolder: (folder, on) => ipcRenderer.invoke('desktop:setTerminalFolder', folder, on),
+    /** Stop the terminal commands running for a conversation. */
+    terminalStop: (sessionId) => ipcRenderer.invoke('desktop:terminalStop', sessionId),
     installCodex: () => ipcRenderer.invoke('desktop:installCodex'),
     settingsInApp: () => ipcRenderer.invoke('desktop:settingsInApp'),
     createTask: (input) => ipcRenderer.invoke('desktop:createTask', input),
