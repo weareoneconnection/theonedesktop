@@ -23,6 +23,7 @@ const { approvedToolList, callApprovedTool } = require('./mcp/actions');
 const { validateServerDefinition, describeCommandLine } = require('./mcp/config');
 const { appendFileSync } = require('node:fs');
 const { activeRuns, refusalMessage } = require('./active-work');
+const { readActivity } = require('./activity');
 const { ComputerSessions } = require('./computer/session');
 const { RecordStore } = require('./computer/records');
 const { createComputerActions } = require('./computer/actions');
@@ -827,6 +828,37 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   handle('desktop:computerRemoveApp', async (name) => { settings.removeComputerApp(String(name || '')); computerSessions.interrupt(); return computerView(); });
   handle('desktop:computerStop', async () => { computerSessions.stopAll(); return computerView(); });
   handle('desktop:computerClearRecords', async () => { computerRecords.clear(); return computerView(); });
+  // ------------------------------------------------------- control center ---
+  // One place to see what TheOne may do on this computer and what it has done, and one switch that turns
+  // all of it off. Everything here only reads, or turns things off (the safe direction): nothing is asked.
+  const activityFiles = { terminalAudit: path.join(app.getPath('userData'), 'terminal-audit.jsonl'), mcpAudit: mcpAuditFile, computerLog: computerRecords.log };
+  const controlCenterView = (limit) => {
+    const servers = settings.mcpServers;
+    const computerState = settings.computer;
+    return {
+      terminal: { ...settings.terminal },
+      mcp: { servers: servers.length, enabledServers: servers.filter((server) => server.enabled).length, enabledTools: servers.reduce((sum, server) => sum + (server.enabled ? server.enabledTools.length : 0), 0) },
+      computer: { enabled: computerState.enabled, apps: computerState.apps.length, captureSupported: computerProvider.supported === true, halted: computerSessions.halted },
+      folders: settings.workspaces.length,
+      activity: readActivity({ ...activityFiles, limit }),
+    };
+  };
+  handle('desktop:controlCenter', async (limit) => controlCenterView(limit));
+  handle('desktop:disableAllLocal', async () => {
+    const stopped = { terminal: settings.terminal.enabled, mcp: 0, computer: settings.computer.enabled };
+    // The page can no longer send a command: the bridge checks this setting on every call, so no restart is needed.
+    settings.setTerminalEnabled(false);
+    for (const server of settings.mcpServers) {
+      if (!server.enabled) continue;
+      await mcp.stop(server.id).catch(() => undefined);
+      settings.setMcpEnabled(server.id, false);
+      mcp.reset(server.id);
+      stopped.mcp += 1;
+    }
+    computerSessions.stopAll();
+    settings.setComputerEnabled(false);
+    return { stopped, view: controlCenterView(30) };
+  });
   const computer = { stop: () => computerSessions.stopAll(), interrupt: () => computerSessions.interrupt(), sessions: computerSessions };
 
   return { info, mcp, computer };
