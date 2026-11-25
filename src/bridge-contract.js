@@ -22,6 +22,7 @@ const KNOWN_CAPABILITIES = Object.freeze([
   // Known, not yet advertised: it is only turned on once a window capture has been verified on a real Mac.
   'computerReadV1',
   'computerActV1',
+  'computerTakeoverV1',
 ]);
 const SUPPORTED_CAPABILITIES = Object.freeze([
   'identityIsolationV1',
@@ -50,7 +51,7 @@ function bridgeContract(provenance, { signingAvailable = true, computerCapture =
       ...SUPPORTED_CAPABILITIES.filter((capability) => capability !== 'signedTaskReceiptV1' || signingAvailable),
       // Only where a window capture exists on this system (computer/provider.js).
       ...(computerCapture ? ['computerReadV1'] : []),
-      ...(computerAct ? ['computerActV1'] : []),
+      ...(computerAct ? ['computerActV1', 'computerTakeoverV1'] : []),
       ...(runtimeV2Verified ? ['runtimeProvenanceV2'] : []),
     ],
     knownCapabilities: [...KNOWN_CAPABILITIES],

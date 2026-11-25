@@ -11,12 +11,15 @@ class SessionError extends Error {
 }
 
 class ComputerSessions {
-  constructor({ maxSteps = 30, maxMs = 10 * 60 * 1000, now = () => Date.now(), onActive = () => {} } = {}) {
+  constructor({ maxSteps = 30, maxMs = 10 * 60 * 1000, takeoverMs = 10 * 60 * 1000, now = () => Date.now(), onActive = () => {} } = {}) {
     this.maxSteps = maxSteps;
     this.maxMs = maxMs;
+    this.takeoverMs = takeoverMs;
     this.now = now;
     this.onActive = onActive;
     this.sessions = new Map();
+    // Takeover: the person let one conversation act in one app without a card for every step, for a short while.
+    this.takeovers = new Map();
     this.halted = false;
     this.wasActive = false;
   }
@@ -52,14 +55,45 @@ class ComputerSessions {
     return { stepsLeft: this.maxSteps - session.steps };
   }
 
+  /** The person confirmed (in a native dialog) that this conversation may act in this app without asking each time, for `ms`. */
+  takeOver(id, app, ms = this.takeoverMs) {
+    if (this.halted) throw new SessionError('halted', 'Computer use was stopped. Turn it back on in settings.');
+    const session = this.get(id);
+    if (!session.apps.has(app)) throw new SessionError('not_looked', 'Look at the application first (and have the person approve it).');
+    const until = this.now() + Math.max(1000, Math.min(ms, this.takeoverMs));
+    this.takeovers.set(session.id, { app, until });
+    this.notify();
+    return { until };
+  }
+
+  /** Whether this conversation is taking over this app right now (an expired takeover is gone). */
+  takeoverFor(id, app) {
+    const key = String(id || '');
+    const taken = this.takeovers.get(key);
+    if (!taken) return null;
+    if (taken.until <= this.now()) { this.takeovers.delete(key); this.notify(); return null; }
+    return taken.app === app ? taken : null;
+  }
+
+  endTakeover(id) {
+    if (this.takeovers.delete(String(id || ''))) this.notify();
+  }
+
+  get takeoverCount() {
+    for (const [key, taken] of [...this.takeovers]) if (taken.until <= this.now()) this.takeovers.delete(key);
+    return this.takeovers.size;
+  }
+
   end(id) {
     this.sessions.delete(String(id || ''));
+    this.takeovers.delete(String(id || ''));
     this.notify();
   }
 
   /** Screen locked, asleep, or the person moved to another app: every approval is forgotten, nothing else. */
   interrupt() {
     for (const session of this.sessions.values()) session.apps.clear();
+    this.takeovers.clear();
     this.notify();
   }
 
@@ -67,6 +101,7 @@ class ComputerSessions {
   stopAll() {
     this.halted = true;
     this.sessions.clear();
+    this.takeovers.clear();
     this.notify();
   }
 

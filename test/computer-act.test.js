@@ -316,3 +316,109 @@ test('acting is advertised only where the system can do it, and its dialog, stop
   assert.match(opener, /process\.platform !== 'darwin'\) return \{ opened: false \}/);
   assert.match(opener, /openExternal\('x-apple\.systempreferences:com\.apple\.preference\.security\?Privacy_Accessibility'\)/);
 });
+
+// ------------------------------------------------------------------- takeover ---
+
+const takeoverSetup = (over = {}) => {
+  const t = setup(over);
+  return t;
+};
+
+test('without a takeover every action asks; with one, clicks and text run without a card', async () => {
+  const t = takeoverSetup();
+  await look(t);
+  assert.equal((await t.actions.act(click())).status, 'needs_approval');
+  t.sessions.takeOver(SID, 'notes');
+  const done = await t.actions.act(click());
+  assert.equal(done.status, 'ok');
+  assert.equal(t.sent.length, 1);
+  const typed = await t.actions.act({ app: 'Notes', sessionId: SID, kind: 'type', text: 'hello' });
+  assert.equal(typed.status, 'ok');
+  assert.equal(t.sent.length, 2);
+});
+
+test('the Return key always asks, even in a takeover', async () => {
+  const t = takeoverSetup();
+  await look(t);
+  t.sessions.takeOver(SID, 'notes');
+  const asked = await t.actions.act({ app: 'Notes', sessionId: SID, kind: 'key', key: 'return' });
+  assert.equal(asked.status, 'needs_approval');
+  assert.equal(t.sent.length, 0);
+  const done = await t.actions.act({ app: 'Notes', sessionId: SID, kind: 'key', key: 'return', approval: { digest: asked.digest } });
+  assert.equal(done.status, 'ok');
+  assert.equal(t.sent.length, 1);
+});
+
+test('a takeover keeps every other rule: sensitive windows, secrets, moved windows, input off, permission', async () => {
+  let t = takeoverSetup({ window: { ...WINDOW, title: 'Sign in to your account' } });
+  await look(t); t.sessions.takeOver(SID, 'notes');
+  assert.equal((await t.actions.act(click())).code, 'sensitive_window');
+  t = takeoverSetup();
+  await look(t); t.sessions.takeOver(SID, 'notes');
+  assert.equal((await t.actions.act({ app: 'Notes', sessionId: SID, kind: 'type', text: 'sk-abcdefghijklmnopqrstuvwxyz123456' })).code, 'secret');
+  t.move({ x: 500 });
+  assert.equal((await t.actions.act(click())).code, 'moved');
+  t = takeoverSetup({ allowInput: false });
+  await look(t);
+  assert.equal((await t.actions.act(click())).code, 'input_off');
+  t = takeoverSetup({ trusted: false });
+  await look(t);
+  assert.equal((await t.actions.act(click())).code, 'permission');
+  assert.equal(t.sent.length, 0);
+});
+
+test('a takeover is for one app in one conversation, and for a limited time', () => {
+  let clock = 1000;
+  const s = new ComputerSessions({ takeoverMs: 60_000, now: () => clock });
+  assert.throws(() => s.takeOver('a', 'notes'), /Look at the application first/);
+  s.approve('a', 'notes');
+  s.takeOver('a', 'notes');
+  assert.ok(s.takeoverFor('a', 'notes'));
+  assert.equal(s.takeoverFor('a', 'wechat'), null);
+  assert.equal(s.takeoverFor('b', 'notes'), null);
+  assert.equal(s.takeoverCount, 1);
+  clock += 61_000;
+  assert.equal(s.takeoverFor('a', 'notes'), null);
+  assert.equal(s.takeoverCount, 0);
+});
+
+test('the stop key, a screen lock and ending the session end a takeover; a stopped computer cannot start one', () => {
+  const s = new ComputerSessions();
+  for (const end of [() => s.stopAll(), () => s.interrupt(), () => s.end('a'), () => s.endTakeover('a')]) {
+    s.release(); s.approve('a', 'notes'); s.takeOver('a', 'notes');
+    assert.ok(s.takeoverFor('a', 'notes'));
+    end();
+    assert.equal(s.takeoverFor('a', 'notes'), null);
+  }
+  s.stopAll();
+  assert.throws(() => s.takeOver('a', 'notes'), /stopped/);
+});
+
+test('a takeover is capped at the session limit and cannot be made longer than allowed', () => {
+  let clock = 0;
+  const s = new ComputerSessions({ takeoverMs: 60_000, now: () => clock });
+  s.approve('a', 'notes');
+  const { until } = s.takeOver('a', 'notes', 24 * 3600 * 1000);
+  assert.equal(until, 60_000);
+});
+
+test('the takeover is recorded as such, and typed text still only as a length', async () => {
+  const t = takeoverSetup();
+  await look(t);
+  t.sessions.takeOver(SID, 'notes');
+  await t.actions.act({ app: 'Notes', sessionId: SID, kind: 'type', text: 'a private sentence' });
+  const text = JSON.stringify(t.records.list ? t.records.list(10) : []);
+  assert.doesNotMatch(text, /private sentence/);
+});
+
+test('the takeover handlers exist, ask in a native dialog, and the capability is advertised only with input', () => {
+  const bridge = fs.readFileSync(path.join(__dirname, '../src/bridge.js'), 'utf8');
+  const block = bridge.slice(bridge.indexOf("handle('desktop:computerTakeOver'"), bridge.indexOf("handle('desktop:computerEndTakeover'"));
+  assert.match(block, /confirmMcp\(/);
+  assert.match(block, /allowInput !== true/);
+  assert.match(block, /isApproved\(/);
+  assert.match(block, /isAllowed\(/);
+  assert.ok(bridgeContract(null, { computerAct: true }).capabilities.includes('computerTakeoverV1'));
+  assert.ok(!bridgeContract(null, { computerAct: false }).capabilities.includes('computerTakeoverV1'));
+  assert.match(fs.readFileSync(path.join(__dirname, '../src/preload.js'), 'utf8'), /computerTakeOver/);
+});
