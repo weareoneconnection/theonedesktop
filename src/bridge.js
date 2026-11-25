@@ -11,7 +11,7 @@ const path = require('node:path');
 const { access, readFile } = require('node:fs/promises');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
-const { dialog, ipcMain, Notification, shell, app } = require('electron');
+const { desktopCapturer, dialog, ipcMain, Notification, shell, app } = require('electron');
 const { FALLBACK_PATH, mergePath, buildLocalDeliverInput, buildLocalMergeInput, buildLocalTaskInput, compactTask, engineName, fromLocalId, isAllowedOrigin, isOpenAIModel, localAgentCall, looksLikeAnthropicKey, looksLikeOpenAIKey, steeringMessage, toLocalId, usageRows } = require('./policy');
 const { engineDocsUrl, listEngines, startCodexLogin } = require('./engines');
 const { buildAttestation, loadOrCreateKey } = require('./attestation');
@@ -29,7 +29,7 @@ const { applyPlan, undoRequest, FileJournal } = require('./files/apply');
 const { ComputerSessions } = require('./computer/session');
 const { RecordStore } = require('./computer/records');
 const { createComputerActions } = require('./computer/actions');
-const { unsupportedProvider } = require('./computer/provider');
+const { createProvider } = require('./computer/provider');
 const { validateApp, AppError } = require('./computer/apps');
 const { createTaskOwnershipStore, identityKey } = require('./task-ownership');
 const { buildTaskReceipt, taskReceiptStateDigest } = require('./task-receipt');
@@ -172,7 +172,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     codexUsesApiKey: settings.codexUsesApiKey,
     workspaces: settings.workspaces,
     identityIsolation: true,
-    bridge: bridgeContract(runtime.provenance || null, { signingAvailable }),
+    bridge: bridgeContract(runtime.provenance || null, { signingAvailable, computerCapture: computerProvider.supported === true }),
   });
 
   // The project's own dev server, started by a button on the preview toolbar (dev-server.js).
@@ -793,13 +793,16 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   // supported", every look is refused with that reason, and nothing is ever captured.
   const computerRecords = new RecordStore({ dir: path.join(app.getPath('userData'), 'computer'), retentionDays: settings.computer.retentionDays });
   const computerSessions = new ComputerSessions({ onActive: (active) => { if (onComputerActive) onComputerActive(active); } });
-  const computerProvider = computerOptions.provider || unsupportedProvider;
+  // The system's own way of taking one application's window (computer/mac-provider.js, win-provider.js); none elsewhere.
+  const computerProvider = computerOptions.provider || createProvider(process.platform, { desktopCapturer });
   const computerActions = createComputerActions({ settings: () => settings.computer, provider: computerProvider, sessions: computerSessions, records: computerRecords });
   runComputerAction = async (call) => {
     const output = call.action === 'computer.state' ? await computerActions.state(call.input) : await computerActions.screenshot(call.input);
     return { ok: true, action: call.action, output };
   };
-  const computerView = () => ({ ...settings.computer, captureSupported: computerProvider.supported === true, halted: computerSessions.halted, records: computerRecords.count() });
+  const computerView = () => ({ ...settings.computer, captureSupported: computerProvider.supported === true, platform: process.platform,
+    // Checked on a real Mac; the Windows provider is written and tested with stand-ins but not yet run on Windows.
+    captureVerified: computerProvider.supported === true && process.platform === 'darwin', halted: computerSessions.halted, records: computerRecords.count() });
   handle('desktop:computerState', async () => computerView());
   handle('desktop:computerSetEnabled', async (on) => {
     if (on) {
@@ -816,6 +819,12 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     }
     settings.setComputerEnabled(Boolean(on));
     return computerView();
+  });
+  // Opens the system's own page where the person allows TheOne to record the screen (macOS). It only opens a page.
+  handle('desktop:computerOpenPermissionSettings', async () => {
+    if (process.platform !== 'darwin') return { opened: false };
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+    return { opened: true };
   });
   handle('desktop:computerAddApp', async (name) => {
     let clean;
