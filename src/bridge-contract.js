@@ -34,7 +34,7 @@ const SUPPORTED_CAPABILITIES = Object.freeze([
   'filesV1',
 ]);
 
-function bridgeContract(provenance, { signingAvailable = true } = {}) {
+function bridgeContract(provenance, { signingAvailable = true, computerCapture = false } = {}) {
   const runtimeSchemaVersion = provenance && typeof provenance.schemaVersion === 'string'
     ? provenance.schemaVersion
     : null;
@@ -47,6 +47,8 @@ function bridgeContract(provenance, { signingAvailable = true } = {}) {
     maximumProtocolVersion: BRIDGE_PROTOCOL.maximum,
     capabilities: [
       ...SUPPORTED_CAPABILITIES.filter((capability) => capability !== 'signedTaskReceiptV1' || signingAvailable),
+      // Only where a window capture exists on this system (computer/provider.js).
+      ...(computerCapture ? ['computerReadV1'] : []),
       ...(runtimeV2Verified ? ['runtimeProvenanceV2'] : []),
     ],
     knownCapabilities: [...KNOWN_CAPABILITIES],

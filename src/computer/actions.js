@@ -2,6 +2,7 @@
 
 const { isAllowed, isBlocked, normalizeApp } = require('./apps');
 const { SessionError } = require('./session');
+const { ProviderError, SAFE_CODES } = require('./provider');
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 // eslint-disable-next-line no-control-regex
@@ -26,14 +27,20 @@ function createComputerActions({ settings, provider, sessions, records }) {
     return null;
   }
 
+  // A provider says why in a few words that are safe to show; anything else is a generic failure.
+  function fromProvider(error, code, message) {
+    if (error instanceof ProviderError && SAFE_CODES.has(error.code)) return refuse(error.code, clean(error.message, 300));
+    return refuse(code, message);
+  }
+
   async function state({ app }) {
     const refused = gate(app);
     if (refused) return refused;
     try {
       const found = await provider.appState(app);
       return { status: 'ok', app: clean(app, 80), running: found.running === true, frontmost: found.frontmost === true, windows: (Array.isArray(found.windows) ? found.windows : []).slice(0, 10).map((title) => clean(title, 100)), outputIsData: true };
-    } catch {
-      return refuse('state_failed', 'Could not read that application\'s state.');
+    } catch (error) {
+      return fromProvider(error, 'state_failed', 'Could not read that application\'s state.');
     }
   }
 
@@ -49,7 +56,7 @@ function createComputerActions({ settings, provider, sessions, records }) {
       }
       const { stepsLeft } = sessions.step(sessionId);
       let shot;
-      try { shot = await provider.captureWindow(app); } catch { return refuse('capture_failed', 'Could not capture that application\'s window. It may be hidden or closed.'); }
+      try { shot = await provider.captureWindow(app); } catch (error) { return fromProvider(error, 'capture_failed', 'Could not capture that application\'s window. It may be hidden or closed.'); }
       const png = shot && Buffer.isBuffer(shot.png) ? shot.png : null;
       if (!png || !png.length || png.length > MAX_IMAGE_BYTES) return refuse('capture_failed', 'The picture was empty or too large.');
       records.add({ session: sessionId, app, kind: 'screenshot', image: png });

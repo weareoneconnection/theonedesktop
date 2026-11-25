@@ -72,6 +72,7 @@ if (allowed.includes(window.location.origin)) {
     computerState: () => ipcRenderer.invoke('desktop:computerState'),
     computerSetEnabled: (on) => ipcRenderer.invoke('desktop:computerSetEnabled', on),
     computerAddApp: (name) => ipcRenderer.invoke('desktop:computerAddApp', name),
+    computerOpenPermissionSettings: () => ipcRenderer.invoke('desktop:computerOpenPermissionSettings'),
     computerRemoveApp: (name) => ipcRenderer.invoke('desktop:computerRemoveApp', name),
     computerStop: () => ipcRenderer.invoke('desktop:computerStop'),
     computerClearRecords: () => ipcRenderer.invoke('desktop:computerClearRecords'),
