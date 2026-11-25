@@ -31,7 +31,7 @@ const out = [];
 for (let i = 0; i < arr.count; i += 1) {
   const w = ObjC.deepUnwrap(arr.objectAtIndex(i));
   const b = w.kCGWindowBounds || {};
-  out.push({ owner: w.kCGWindowOwnerName || '', pid: w.kCGWindowOwnerPID, id: w.kCGWindowNumber, title: w.kCGWindowName || '', layer: w.kCGWindowLayer, alpha: w.kCGWindowAlpha, w: b.Width || 0, h: b.Height || 0 });
+  out.push({ owner: w.kCGWindowOwnerName || '', pid: w.kCGWindowOwnerPID, id: w.kCGWindowNumber, title: w.kCGWindowName || '', layer: w.kCGWindowLayer, alpha: w.kCGWindowAlpha, x: b.X || 0, y: b.Y || 0, w: b.Width || 0, h: b.Height || 0 });
 }
 JSON.stringify(out);
 `;
@@ -39,6 +39,34 @@ JSON.stringify(out);
 const run = (file, args, { timeout = 15000 } = {}) => new Promise((resolve, reject) => {
   execFile(file, args, { timeout, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => (error ? reject(Object.assign(error, { stderr })) : resolve(stdout)));
 });
+
+// Keys by their macOS virtual key code.
+const KEY_CODES = { return: 36, tab: 48, escape: 53, space: 49, delete: 51, left: 123, right: 124, down: 125, up: 126 };
+
+// Events go to one process (CGEventPostToPid), never to the whole system, so a window on top cannot take them. macOS
+// drops them without any error unless the app is allowed under Accessibility: `trusted` is checked first, always.
+const jxa = (body) => `ObjC.import('CoreGraphics'); ObjC.import('ApplicationServices'); ${body}`;
+const trustScript = jxa('JSON.stringify({ trusted: $.AXIsProcessTrusted() });');
+const clickScript = (pid, x, y, double) => jxa(`
+const pid = ${Number(pid)}; const p = { x: ${Number(x)}, y: ${Number(y)} };
+const post = (type, state) => { const e = $.CGEventCreateMouseEvent(null, type, p, 0); $.CGEventSetIntegerValueField(e, 1, state); $.CGEventPostToPid(pid, e); };
+post(5, 0); delay(0.05);
+post(1, 1); delay(0.04); post(2, 1);
+${double ? 'delay(0.06); post(1, 2); delay(0.04); post(2, 2);' : ''}
+'ok';`);
+const typeScript = (pid, text) => jxa(`
+const pid = ${Number(pid)};
+for (const ch of Array.from(${JSON.stringify(String(text))})) {
+  const down = $.CGEventCreateKeyboardEvent(null, 0, true); $.CGEventKeyboardSetUnicodeString(down, ch.length, ch);
+  const up = $.CGEventCreateKeyboardEvent(null, 0, false); $.CGEventKeyboardSetUnicodeString(up, ch.length, ch);
+  $.CGEventPostToPid(pid, down); delay(0.02); $.CGEventPostToPid(pid, up); delay(0.02);
+}
+'ok';`);
+const keyScript = (pid, code) => jxa(`
+const pid = ${Number(pid)};
+const down = $.CGEventCreateKeyboardEvent(null, ${Number(code)}, true); const up = $.CGEventCreateKeyboardEvent(null, ${Number(code)}, false);
+$.CGEventPostToPid(pid, down); delay(0.03); $.CGEventPostToPid(pid, up);
+'ok';`);
 
 function createMacProvider({ exec = run, tmpdir = os.tmpdir(), selfPid = process.pid, platform = process.platform } = {}) {
   async function listWindows() {
@@ -86,13 +114,40 @@ function createMacProvider({ exec = run, tmpdir = os.tmpdir(), selfPid = process
         const size = pngSize(png);
         if (!size) throw new ProviderError('not_visible', 'The window could not be captured.');
         if (png.length > MAX_BYTES) throw new ProviderError('too_large', 'The picture is too large.');
-        return { png, width: size.width, height: size.height };
+        // `window` is where the window stood when it was taken: a click is placed on that picture and checked against it.
+        return { png, width: size.width, height: size.height, window: { id: target.id, pid: target.pid, x: target.x, y: target.y, w: target.w, h: target.h, title: target.title || '' } };
       } catch (error) {
         if (error instanceof ProviderError) throw error;
         throw new ProviderError('not_visible', 'The window could not be captured.');
       } finally {
         try { fs.rmSync(file, { force: true }); } catch { /* a temp file that is already gone */ }
       }
+    },
+
+    /** The app's front-most window as it is now (no picture): where it is, for checking a click still means what it did. */
+    async findWindow(app) {
+      const all = await listWindows();
+      assertPermission(all);
+      const target = windowsOf(all, app)[0];
+      return target ? { id: target.id, pid: target.pid, x: target.x, y: target.y, w: target.w, h: target.h, title: target.title || '' } : null;
+    },
+
+    input: {
+      supported: platform === 'darwin',
+      /** Whether macOS lets this app send events to others (Accessibility). Without it they are dropped silently. */
+      async trusted() {
+        try { return JSON.parse(String(await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', trustScript])).trim()).trusted === true; } catch { return false; }
+      },
+      async click(window, point, { double = false } = {}) {
+        await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', clickScript(window.pid, point.x, point.y, double)]);
+      },
+      async type(window, text) {
+        await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', typeScript(window.pid, text)], { timeout: 30000 });
+      },
+      async key(window, name) {
+        if (!(name in KEY_CODES)) throw new ProviderError('unsupported', 'That key cannot be pressed.');
+        await exec('/usr/bin/osascript', ['-l', 'JavaScript', '-e', keyScript(window.pid, KEY_CODES[name])]);
+      },
     },
 
     // For tests and the settings page.

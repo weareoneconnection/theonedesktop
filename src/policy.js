@@ -867,7 +867,7 @@ const LOCAL_AGENT_ACTIONS = new Set([
   // The tools of the MCP servers the person turned on, and one call to them. Rebuilt in mcpCall; run in the app, not the runtime.
   'mcp.list', 'mcp.call',
   // How an application the person allowed looks, and a picture of its window. Rebuilt in computerCall; run in the app.
-  'computer.state', 'computer.screenshot',
+  'computer.state', 'computer.screenshot', 'computer.act',
   // A preview of file operations, and doing an approved one, in an opened folder the person turned file management on for. Rebuilt in filesCall.
   'files.plan', 'files.apply',
 ]);
@@ -1007,6 +1007,18 @@ function computerCall(action, value) {
   if (!app || app.length > 80 || /[\u0000-\u001f\u007f/\\]/.test(raw)) throw new Error('A screen action names one application.');
   const session = String(input.sessionId || '');
   if (action === 'computer.state') return { action, input: { app } };
+  if (action === 'computer.act') {
+    // One click, one text or one key, with the digest of the action the person approved. Field by field, by type.
+    const kind = typeof input.kind === 'string' ? input.kind : '';
+    const num = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
+    const out = { app, kind: kind.slice(0, 10), ...(/^[A-Za-z0-9_:-]{4,120}$/.test(session) ? { sessionId: session } : {}) };
+    if (kind === 'click') Object.assign(out, { x: num(input.x), y: num(input.y), imageWidth: num(input.imageWidth), imageHeight: num(input.imageHeight), ...(input.double === true ? { double: true } : {}) });
+    else if (kind === 'type') Object.assign(out, { text: typeof input.text === 'string' ? input.text.slice(0, 600) : '' });
+    else if (kind === 'key') Object.assign(out, { key: typeof input.key === 'string' ? input.key.slice(0, 12) : '' });
+    else throw new Error('A screen action is a click, some text to type or one key.');
+    const digest = input.approval && typeof input.approval === 'object' && /^[0-9a-f]{64}$/.test(String(input.approval.digest || '')) ? String(input.approval.digest) : '';
+    return { action, input: { ...out, ...(digest ? { approval: { digest } } : {}) } };
+  }
   return { action, input: { app, ...(/^[A-Za-z0-9_:-]{4,120}$/.test(session) ? { sessionId: session } : {}), ...(input.approved === true ? { approved: true } : {}) } };
 }
 
@@ -1042,7 +1054,7 @@ function localAgentCall(body, pickedWorkspaces, terminal, files) {
   if (!LOCAL_AGENT_ACTIONS.has(action)) throw new Error(`This computer does not run "${action.slice(0, 40)}" for the chat agent.`);
   if (action === 'terminal.exec') return terminalCall(value, pickedWorkspaces, terminal);
   if (action === 'mcp.list' || action === 'mcp.call') return mcpCall(action, value);
-  if (action === 'computer.state' || action === 'computer.screenshot') return computerCall(action, value);
+  if (action === 'computer.state' || action === 'computer.screenshot' || action === 'computer.act') return computerCall(action, value);
   if (action === 'files.plan' || action === 'files.apply') return filesCall(action, value, pickedWorkspaces, files);
   const input = value.input && typeof value.input === 'object' ? value.input : {};
   const isCodeAction = action.startsWith('code.');
