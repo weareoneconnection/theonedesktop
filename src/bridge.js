@@ -172,7 +172,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     codexUsesApiKey: settings.codexUsesApiKey,
     workspaces: settings.workspaces,
     identityIsolation: true,
-    bridge: bridgeContract(runtime.provenance || null, { signingAvailable, computerCapture: computerProvider.supported === true }),
+    bridge: bridgeContract(runtime.provenance || null, { signingAvailable, computerCapture: computerProvider.supported === true, computerAct: Boolean(computerProvider.input && computerProvider.input.supported) }),
   });
 
   // The project's own dev server, started by a button on the preview toolbar (dev-server.js).
@@ -451,7 +451,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     const call = localAgentCall(body, settings.workspaces, settings.terminal, settings.files);
     // MCP tools run in this app, not in the local runtime: nothing here needs the runtime to be up.
     if (call.action === 'mcp.list' || call.action === 'mcp.call') return runMcpAction(call);
-    if (call.action === 'computer.state' || call.action === 'computer.screenshot') return runComputerAction(call);
+    if (call.action === 'computer.state' || call.action === 'computer.screenshot' || call.action === 'computer.act') return runComputerAction(call);
     if (call.action === 'files.plan' || call.action === 'files.apply') return runFilesAction(call);
     if (runtime.state.status !== 'ready') throw new Error('The local runtime is not running.');
     const result = await runtime.request('POST', '/v1/actions/execute', {
@@ -797,13 +797,35 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   const computerProvider = computerOptions.provider || createProvider(process.platform, { desktopCapturer });
   const computerActions = createComputerActions({ settings: () => settings.computer, provider: computerProvider, sessions: computerSessions, records: computerRecords });
   runComputerAction = async (call) => {
-    const output = call.action === 'computer.state' ? await computerActions.state(call.input) : await computerActions.screenshot(call.input);
+    const output = call.action === 'computer.state' ? await computerActions.state(call.input) : call.action === 'computer.act' ? await computerActions.act(call.input) : await computerActions.screenshot(call.input);
     return { ok: true, action: call.action, output };
   };
   const computerView = () => ({ ...settings.computer, captureSupported: computerProvider.supported === true, platform: process.platform,
     // Checked on a real Mac; the Windows provider is written and tested with stand-ins but not yet run on Windows.
     captureVerified: computerProvider.supported === true && process.platform === 'darwin', halted: computerSessions.halted, records: computerRecords.count() });
-  handle('desktop:computerState', async () => computerView());
+  handle('desktop:computerState', async () => ({ ...computerView(), inputSupported: Boolean(computerProvider.input && computerProvider.input.supported), inputTrusted: computerProvider.input && computerProvider.input.supported ? await computerProvider.input.trusted().catch(() => false) : false }));
+  // Acting (click, type) is a separate choice from looking, confirmed in a dialog the page cannot draw; turning it off asks nothing.
+  handle('desktop:computerSetInput', async (on) => {
+    if (on) {
+      if (!settings.computer.enabled) throw new Error(isEnglish() ? 'Turn computer use on first.' : '请先开启电脑使用。');
+      if (!(computerProvider.input && computerProvider.input.supported)) throw new Error(isEnglish() ? 'Clicking and typing is not available on this system yet.' : '这个系统暂时还不支持点击和输入。');
+      await confirmMcp(
+        isEnglish() ? 'Let TheOne click and type in the applications you added?' : '允许 TheOne 在你添加的应用里点击和输入吗？',
+        isEnglish()
+          ? 'TheOne will be able to click and type in the windows of the applications you added, only after it has looked at the window, and only one action at a time: every click, every text and every key press is shown to you first and needs your approval. It never types passwords, keys or card numbers, and refuses sign-in and payment windows. It can still make mistakes: a click can land on the wrong thing. The stop key and “Turn everything off” end it at once. This needs your permission under Accessibility in System Settings.'
+          : 'TheOne 只能在看过窗口之后，在你添加的应用的窗口里点击和输入，并且一次只做一个动作：每一次点击、每一段文字、每一个按键都会先给你看，经你批准才执行。它不会输入密码、密钥或卡号，遇到登录和支付窗口会拒绝。它仍可能出错，比如点到不对的地方。停止键和“全部关闭”会立刻终止它。这需要你在系统设置的“辅助功能”里允许。',
+        isEnglish() ? 'Turn on' : '开启',
+      );
+    }
+    settings.setComputerInput(Boolean(on));
+    if (!on) computerSessions.interrupt();
+    return computerView();
+  });
+  handle('desktop:computerOpenAccessibilitySettings', async () => {
+    if (process.platform !== 'darwin') return { opened: false };
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+    return { opened: true };
+  });
   handle('desktop:computerSetEnabled', async (on) => {
     if (on) {
       await confirmMcp(
@@ -913,7 +935,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
       terminal: { ...settings.terminal },
       mcp: { servers: servers.length, enabledServers: servers.filter((server) => server.enabled).length, enabledTools: servers.reduce((sum, server) => sum + (server.enabled ? server.enabledTools.length : 0), 0) },
       files: { enabled: settings.files.enabled, folders: settings.files.folders.length },
-      computer: { enabled: computerState.enabled, apps: computerState.apps.length, captureSupported: computerProvider.supported === true, halted: computerSessions.halted },
+      computer: { enabled: computerState.enabled, allowInput: computerState.allowInput === true, apps: computerState.apps.length, captureSupported: computerProvider.supported === true, halted: computerSessions.halted },
       folders: settings.workspaces.length,
       activity: readActivity({ ...activityFiles, limit }),
     };

@@ -108,13 +108,22 @@ class Settings {
   get computer() {
     const saved = this.data.computer && typeof this.data.computer === 'object' ? this.data.computer : {};
     const apps = (Array.isArray(saved.apps) ? saved.apps : []).filter((app) => typeof app === 'string' && app && app.length <= 80);
-    return { enabled: saved.enabled === true, apps: [...new Set(apps)].slice(0, 20), retentionDays: Number.isInteger(saved.retentionDays) && saved.retentionDays >= 1 && saved.retentionDays <= 30 ? saved.retentionDays : 7 };
+    // Acting (click, type) is its own choice, off by default, and only ever on while looking is.
+    return { enabled: saved.enabled === true, allowInput: saved.enabled === true && saved.allowInput === true, apps: [...new Set(apps)].slice(0, 20), retentionDays: Number.isInteger(saved.retentionDays) && saved.retentionDays >= 1 && saved.retentionDays <= 30 ? saved.retentionDays : 7 };
   }
 
   /** Turning it off forgets the apps: they have to be added again, each with its own confirmation. */
   setComputerEnabled(enabled) {
     const current = this.computer;
-    this.data.computer = { enabled: Boolean(enabled), apps: enabled ? current.apps : [], retentionDays: current.retentionDays };
+    this.data.computer = { enabled: Boolean(enabled), allowInput: false, apps: enabled ? current.apps : [], retentionDays: current.retentionDays };
+    this.save();
+    return this.computer;
+  }
+
+  setComputerInput(allow) {
+    const current = this.computer;
+    if (!current.enabled) throw new Error('Computer use is off.');
+    this.data.computer = { ...current, allowInput: Boolean(allow) };
     this.save();
     return this.computer;
   }
