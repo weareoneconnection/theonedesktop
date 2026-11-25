@@ -30,7 +30,7 @@ const { ComputerSessions } = require('./computer/session');
 const { RecordStore } = require('./computer/records');
 const { createComputerActions } = require('./computer/actions');
 const { createProvider } = require('./computer/provider');
-const { validateApp, AppError } = require('./computer/apps');
+const { validateApp, AppError, isAllowed, normalizeApp } = require('./computer/apps');
 const { createTaskOwnershipStore, identityKey } = require('./task-ownership');
 const { buildTaskReceipt, taskReceiptStateDigest } = require('./task-receipt');
 
@@ -802,7 +802,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   };
   const computerView = () => ({ ...settings.computer, captureSupported: computerProvider.supported === true, platform: process.platform,
     // Checked on a real Mac; the Windows provider is written and tested with stand-ins but not yet run on Windows.
-    captureVerified: computerProvider.supported === true && process.platform === 'darwin', halted: computerSessions.halted, records: computerRecords.count() });
+    captureVerified: computerProvider.supported === true && process.platform === 'darwin', halted: computerSessions.halted, records: computerRecords.count(), takeovers: computerSessions.takeoverCount });
   handle('desktop:computerState', async () => ({ ...computerView(), inputSupported: Boolean(computerProvider.input && computerProvider.input.supported), inputTrusted: computerProvider.input && computerProvider.input.supported ? await computerProvider.input.trusted().catch(() => false) : false }));
   // Acting (click, type) is a separate choice from looking, confirmed in a dialog the page cannot draw; turning it off asks nothing.
   handle('desktop:computerSetInput', async (on) => {
@@ -826,6 +826,24 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
     return { opened: true };
   });
+  // Takeover: act in one app, in this conversation, for ten minutes, without a card for each step. Only a person can start
+  // it, in a native dialog this page cannot click; it needs the app to be allowed and already looked at in this conversation.
+  handle('desktop:computerTakeOver', async (appName, sessionId) => {
+    const name = validateApp(String(appName || ''));
+    if (!settings.computer.enabled || settings.computer.allowInput !== true) throw new Error(isEnglish() ? 'Turn on clicking and typing in settings first.' : '请先在设置里开启“允许点击和输入”。');
+    if (!isAllowed(settings.computer.apps, name)) throw new Error(isEnglish() ? 'That application is not in the allowed list.' : '这个应用不在允许列表里。');
+    const key = normalizeApp(name);
+    if (!computerSessions.isApproved(String(sessionId || ''), key)) throw new Error(isEnglish() ? 'Look at the application in this conversation first.' : '请先在这个对话里让它看过这个应用。');
+    await confirmMcp(
+      isEnglish() ? `Let TheOne take over ${name} for 10 minutes?` : `允许 TheOne 接管“${name}”10 分钟吗？`,
+      isEnglish()
+        ? 'For 10 minutes, TheOne can click, type and press keys in this application’s window in this conversation without asking for each step. Every step still appears in the chat with a new picture. It stays limited to this one application; sign-in and payment windows are refused; it never types passwords, keys or card numbers; the Return key still asks every time. The stop key, “Turn everything off” or locking the screen ends it at once. It can still make mistakes: a click can land on the wrong thing.'
+        : '这 10 分钟里，TheOne 可以在这个对话里，在这个应用的窗口中点击、输入和按键，不再每一步都问你。每一步仍会在聊天里显示，并附上新的截图。它只限这一个应用；登录和支付窗口会被拒绝；不会输入密码、密钥或卡号；回车键仍然每次都问。停止键、“全部关闭”或锁屏会立刻结束接管。它仍可能出错，比如点到不对的地方。',
+      isEnglish() ? 'Take over' : '接管',
+    );
+    return computerSessions.takeOver(String(sessionId || ''), key);
+  });
+  handle('desktop:computerEndTakeover', async (sessionId) => { computerSessions.endTakeover(String(sessionId || '')); return computerView(); });
   handle('desktop:computerSetEnabled', async (on) => {
     if (on) {
       await confirmMcp(
@@ -935,7 +953,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
       terminal: { ...settings.terminal },
       mcp: { servers: servers.length, enabledServers: servers.filter((server) => server.enabled).length, enabledTools: servers.reduce((sum, server) => sum + (server.enabled ? server.enabledTools.length : 0), 0) },
       files: { enabled: settings.files.enabled, folders: settings.files.folders.length },
-      computer: { enabled: computerState.enabled, allowInput: computerState.allowInput === true, apps: computerState.apps.length, captureSupported: computerProvider.supported === true, halted: computerSessions.halted },
+      computer: { enabled: computerState.enabled, allowInput: computerState.allowInput === true, apps: computerState.apps.length, captureSupported: computerProvider.supported === true, halted: computerSessions.halted, takeovers: computerSessions.takeoverCount },
       folders: settings.workspaces.length,
       activity: readActivity({ ...activityFiles, limit }),
     };

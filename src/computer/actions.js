@@ -105,10 +105,14 @@ function createComputerActions({ settings, provider, sessions, records, settle =
       if (sensitiveTitle(current.title)) return refuse('sensitive_window', 'This window looks like a sign-in, payment or password screen. The person does that themselves.');
       const point = action.kind === 'click' ? mapClick(action, current) : null;
       const digest = actionDigest({ app, window: current, action });
-      if (!approval || typeof approval.digest !== 'string') {
+      // Taking over: the person let this conversation act in this app without a card for each step. Every other check above
+      // still ran. The Return key always asks (in a chat app it sends the message), and so does a second takeover's end.
+      const taken = sessions.takeoverFor(sessionId, normalizeApp(app));
+      const asks = !taken || (action.kind === 'key' && action.key === 'return');
+      if (asks && (!approval || typeof approval.digest !== 'string')) {
         return { status: 'needs_approval', app: clean(app, 80), digest, action: describeAction(action), outputIsData: true };
       }
-      if (approval.digest !== digest) return refuse('changed', 'This is not what was approved: the action or the window changed since the card. Look again.');
+      if (asks && approval.digest !== digest) return refuse('changed', 'This is not what was approved: the action or the window changed since the card. Look again.');
       const { stepsLeft } = sessions.step(sessionId);
       try {
         if (action.kind === 'click') await provider.input.click(current, point, { double: action.double });
@@ -118,7 +122,7 @@ function createComputerActions({ settings, provider, sessions, records, settle =
         return fromProvider(error, 'act_failed', 'The action could not be carried out.');
       }
       // A typed text is never written to the record, only how long it was.
-      records.add({ session: sessionId, app, kind: action.kind, note: describeAction(action, { forLog: true }) });
+      records.add({ session: sessionId, app, kind: action.kind, note: describeAction(action, { forLog: true }) + (asks ? '' : ' (takeover)') });
       await settle(SETTLE_MS);
       let after = null;
       try { after = await provider.captureWindow(app); } catch { /* the action was done; the new picture is a bonus */ }

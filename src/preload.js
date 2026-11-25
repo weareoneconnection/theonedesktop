@@ -75,6 +75,8 @@ if (allowed.includes(window.location.origin)) {
     computerOpenPermissionSettings: () => ipcRenderer.invoke('desktop:computerOpenPermissionSettings'),
     computerSetInput: (on) => ipcRenderer.invoke('desktop:computerSetInput', on),
     computerOpenAccessibilitySettings: () => ipcRenderer.invoke('desktop:computerOpenAccessibilitySettings'),
+    computerTakeOver: (app, sessionId) => ipcRenderer.invoke('desktop:computerTakeOver', app, sessionId),
+    computerEndTakeover: (sessionId) => ipcRenderer.invoke('desktop:computerEndTakeover', sessionId),
     computerRemoveApp: (name) => ipcRenderer.invoke('desktop:computerRemoveApp', name),
     computerStop: () => ipcRenderer.invoke('desktop:computerStop'),
     computerClearRecords: () => ipcRenderer.invoke('desktop:computerClearRecords'),
