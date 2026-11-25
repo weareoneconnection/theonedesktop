@@ -58,6 +58,9 @@ if (allowed.includes(window.location.origin)) {
      * Computer use (TheOne looking at applications you chose). Turning it on and adding an application
      * are each confirmed in a native dialog; stopping, removing and clearing records are not.
      */
+    /** What TheOne may do on this computer and what it has done (read only), and one switch that turns all of it off. */
+    controlCenter: (limit) => ipcRenderer.invoke('desktop:controlCenter', limit),
+    disableAllLocal: () => ipcRenderer.invoke('desktop:disableAllLocal'),
     computerState: () => ipcRenderer.invoke('desktop:computerState'),
     computerSetEnabled: (on) => ipcRenderer.invoke('desktop:computerSetEnabled', on),
     computerAddApp: (name) => ipcRenderer.invoke('desktop:computerAddApp', name),
