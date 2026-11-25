@@ -868,6 +868,8 @@ const LOCAL_AGENT_ACTIONS = new Set([
   'mcp.list', 'mcp.call',
   // How an application the person allowed looks, and a picture of its window. Rebuilt in computerCall; run in the app.
   'computer.state', 'computer.screenshot',
+  // A preview of file operations, and doing an approved one, in an opened folder the person turned file management on for. Rebuilt in filesCall.
+  'files.plan', 'files.apply',
 ]);
 
 /**
@@ -1008,13 +1010,40 @@ function computerCall(action, value) {
   return { action, input: { app, ...(/^[A-Za-z0-9_:-]{4,120}$/.test(session) ? { sessionId: session } : {}), ...(input.approved === true ? { approved: true } : {}) } };
 }
 
-function localAgentCall(body, pickedWorkspaces, terminal) {
+/**
+ * files.plan / files.apply, rebuilt field by field. File management must be on, and on for the opened
+ * folder; the operations are only {op, from, to} text (checked again where they are planned) and an
+ * approval is only the digest of the plan the person saw.
+ */
+function filesCall(action, value, pickedWorkspaces, files) {
+  const input = value.input && typeof value.input === 'object' && !Array.isArray(value.input) ? value.input : {};
+  if (!files || files.enabled !== true) throw new Error('File management is off. Turn it on in TheOne Desktop settings.');
+  const target = String(input.workspacePath || '').trim();
+  if (!target || !path.isAbsolute(target)) throw new Error('File operations need the absolute path of an opened folder.');
+  const root = (pickedWorkspaces || []).find((folder) => isInside(folder, target));
+  if (!root) throw new Error('That path is not inside a folder opened in TheOne.');
+  if (!(files.folders || []).some((folder) => path.normalize(folder) === path.normalize(root))) throw new Error('File management is not turned on for this folder. Turn it on for the folder in TheOne Desktop settings.');
+  const raw = Array.isArray(input.operations) ? input.operations : [];
+  if (!raw.length || raw.length > 200) throw new Error('A request has between 1 and 200 operations.');
+  const operations = raw.map((item) => {
+    const entry = item && typeof item === 'object' && !Array.isArray(item) ? item : {};
+    const out = { op: typeof entry.op === 'string' ? entry.op.slice(0, 10) : '' };
+    if (typeof entry.from === 'string') out.from = entry.from.slice(0, 1100);
+    if (typeof entry.to === 'string') out.to = entry.to.slice(0, 1100);
+    return out;
+  });
+  const digest = input.approval && typeof input.approval === 'object' && /^[0-9a-f]{64}$/.test(String(input.approval.digest || '')) ? String(input.approval.digest) : '';
+  return { action, input: { root, operations, ...(action === 'files.apply' && digest ? { approval: { digest } } : {}) } };
+}
+
+function localAgentCall(body, pickedWorkspaces, terminal, files) {
   const value = body && typeof body === 'object' ? body : {};
   const action = String(value.action || '').trim();
   if (!LOCAL_AGENT_ACTIONS.has(action)) throw new Error(`This computer does not run "${action.slice(0, 40)}" for the chat agent.`);
   if (action === 'terminal.exec') return terminalCall(value, pickedWorkspaces, terminal);
   if (action === 'mcp.list' || action === 'mcp.call') return mcpCall(action, value);
   if (action === 'computer.state' || action === 'computer.screenshot') return computerCall(action, value);
+  if (action === 'files.plan' || action === 'files.apply') return filesCall(action, value, pickedWorkspaces, files);
   const input = value.input && typeof value.input === 'object' ? value.input : {};
   const isCodeAction = action.startsWith('code.');
   const target = String(isCodeAction ? (input.workspacePath || input.path) : input.path || '').trim();

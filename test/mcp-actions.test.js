@@ -174,7 +174,7 @@ const read = (file) => fs.readFileSync(path.join(__dirname, '..', 'src', file), 
 test('the page asks for an action, the policy rebuilds it, and MCP does not wait for the runtime', () => {
   const bridge = read('bridge.js');
   const handler = bridge.slice(bridge.indexOf("handleWithEvent('desktop:runAction'"), bridge.indexOf("handleWithEvent('desktop:pendingTasks'"));
-  assert.match(handler, /const call = localAgentCall\(body, settings\.workspaces, settings\.terminal\);/);
+  assert.match(handler, /const call = localAgentCall\(body, settings\.workspaces, settings\.terminal, settings\.files\);/);
   assert.ok(handler.indexOf("call.action === 'mcp.list'") > handler.indexOf('localAgentCall('), 'the request is rebuilt first');
   assert.ok(handler.indexOf("call.action === 'mcp.list'") < handler.indexOf("runtime.state.status !== 'ready'"), 'a stopped runtime does not stop MCP');
   assert.match(handler, /return runMcpAction\(call\);/);

@@ -24,6 +24,8 @@ const { validateServerDefinition, describeCommandLine } = require('./mcp/config'
 const { appendFileSync } = require('node:fs');
 const { activeRuns, refusalMessage } = require('./active-work');
 const { readActivity } = require('./activity');
+const { buildPlan } = require('./files/plan');
+const { applyPlan, undoRequest, FileJournal } = require('./files/apply');
 const { ComputerSessions } = require('./computer/session');
 const { RecordStore } = require('./computer/records');
 const { createComputerActions } = require('./computer/actions');
@@ -440,15 +442,17 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   // Set once the MCP manager exists (below); the handler only runs later, from the page.
   let runMcpAction = null;
   let runComputerAction = null;
+  let runFilesAction = null;
   handleWithEvent('desktop:runAction', async (event, body) => {
     // Opened folders are device-level capabilities, but using them is still
     // an account action. Never let a renderer keep reading local files after
     // logout or while an account switch has not finished binding.
     currentIdentity(event);
-    const call = localAgentCall(body, settings.workspaces, settings.terminal);
+    const call = localAgentCall(body, settings.workspaces, settings.terminal, settings.files);
     // MCP tools run in this app, not in the local runtime: nothing here needs the runtime to be up.
     if (call.action === 'mcp.list' || call.action === 'mcp.call') return runMcpAction(call);
     if (call.action === 'computer.state' || call.action === 'computer.screenshot') return runComputerAction(call);
+    if (call.action === 'files.plan' || call.action === 'files.apply') return runFilesAction(call);
     if (runtime.state.status !== 'ready') throw new Error('The local runtime is not running.');
     const result = await runtime.request('POST', '/v1/actions/execute', {
       action: call.action,
@@ -828,16 +832,78 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   handle('desktop:computerRemoveApp', async (name) => { settings.removeComputerApp(String(name || '')); computerSessions.interrupt(); return computerView(); });
   handle('desktop:computerStop', async () => { computerSessions.stopAll(); return computerView(); });
   handle('desktop:computerClearRecords', async () => { computerRecords.clear(); return computerView(); });
+  // ----------------------------------------------------------------- files ---
+  // Moving, copying, renaming, making folders and sending to the trash, in opened folders the person turned
+  // this on for. A preview changes nothing; doing it needs the digest of the plan the person approved, and
+  // the trash is the system's (nothing is ever deleted for good). Turning it on, and undoing a request, are
+  // confirmed in a native dialog the page cannot draw; turning it off asks nothing.
+  const filesJournal = new FileJournal(path.join(app.getPath('userData'), 'files-journal.jsonl'));
+  const shortStep = (step) => ({ index: step.index, op: step.op, ...(step.from !== undefined ? { from: step.from } : {}), ...(step.to !== undefined ? { to: step.to } : {}), kind: step.kind, ...(step.entries ? { entries: step.entries, bytes: step.bytes } : {}) });
+  runFilesAction = async (call) => {
+    const { root, operations, approval } = call.input;
+    try {
+      if (call.action === 'files.plan') {
+        const plan = await buildPlan({ root, operations });
+        return { ok: true, action: call.action, output: { status: plan.ok ? 'plan' : 'invalid', digest: plan.digest, counts: plan.counts, steps: plan.steps.slice(0, 200).map(shortStep), problems: plan.problems.slice(0, 20), outputIsData: true } };
+      }
+      const result = await applyPlan({ root, operations, approvalDigest: approval && approval.digest, journal: filesJournal, trashItem: (target) => shell.trashItem(target) });
+      return { ok: true, action: call.action, output: { status: result.status, id: result.id, done: result.done.length, ...(result.error ? { error: { code: result.error.code, message: result.error.message } } : {}), outputIsData: true } };
+    } catch (error) {
+      return { ok: true, action: call.action, output: { status: 'error', error: { code: (error && error.code) || 'failed', message: String((error && error.message) || error).slice(0, 300) }, outputIsData: true } };
+    }
+  };
+  const filesView = () => ({ ...settings.files, journal: filesJournal.list(20).map((entry) => ({ id: entry.id, at: entry.at, root: entry.root, status: entry.status, steps: Array.isArray(entry.steps) ? entry.steps.length : 0, undone: Boolean(entry.undoneAt), undoable: entry.status === 'applied' && !entry.undoneAt && (entry.steps || []).some((step) => step.op !== 'trash') })) });
+  handle('desktop:filesState', async () => filesView());
+  handle('desktop:filesSetEnabled', async (on) => {
+    if (on) {
+      await confirmMcp(
+        isEnglish() ? 'Let TheOne manage files on this computer?' : '允许 TheOne 在这台电脑上管理文件吗？',
+        isEnglish()
+          ? 'In folders you turn this on for, TheOne can move, copy, rename and create folders, and send files to the trash. Nothing is overwritten and nothing is deleted for good. Every change is shown to you first and needs your approval, and most can be undone from settings. Files sent to the trash are restored from the system trash.'
+          : '在你开启的文件夹里，TheOne 可以移动、复制、重命名、新建文件夹，以及把文件放进废纸篓。不会覆盖任何文件，也不会永久删除。每一次改动都会先给你看，经你批准才执行，大多数可以在设置里撤销。放进废纸篓的文件要从系统废纸篓还原。',
+        isEnglish() ? 'Turn on' : '开启',
+      );
+    }
+    settings.setFilesEnabled(Boolean(on));
+    return filesView();
+  });
+  handle('desktop:filesSetFolder', async (folder, on) => {
+    const value = String(folder || '');
+    if (on) {
+      if (!settings.files.enabled) throw new Error(isEnglish() ? 'Turn file management on first.' : '请先开启文件管理。');
+      await confirmMcp(
+        isEnglish() ? `Let TheOne manage files in “${path.basename(value)}”?` : `允许 TheOne 管理“${path.basename(value)}”里的文件吗？`,
+        `${value}\n\n${isEnglish() ? 'It can move, copy, rename, create folders and send files to the trash here, each time after you approve.' : '它可以在这里移动、复制、重命名、新建文件夹和把文件放进废纸篓，每次都要经你批准。'}`,
+        isEnglish() ? 'Allow' : '允许',
+      );
+    }
+    settings.setFilesFolder(value, Boolean(on));
+    return filesView();
+  });
+  handle('desktop:filesUndo', async (id) => {
+    const entry = filesJournal.get(String(id || ''));
+    if (!entry) throw new Error(isEnglish() ? 'There is no such request.' : '没有这个请求。');
+    const reversible = (entry.steps || []).filter((step) => step.op !== 'trash').length;
+    await confirmMcp(
+      isEnglish() ? `Undo ${reversible} change${reversible === 1 ? '' : 's'}?` : `撤销 ${reversible} 项改动吗？`,
+      `${entry.root}\n\n${isEnglish() ? 'Moves and renames are moved back, copies and new folders are removed. Files sent to the trash are not restored: take them from the system trash.' : '移动和重命名会移回原处，复制出来的文件和新建的文件夹会被删掉。放进废纸篓的文件不会恢复，请从系统废纸篓里取回。'}`,
+      isEnglish() ? 'Undo' : '撤销',
+    );
+    const result = await undoRequest({ id: entry.id, journal: filesJournal });
+    return { undone: result.undone.length, notUndone: result.notUndone.map((step) => ({ op: step.op, from: step.from, to: step.to, reason: step.reason })), view: filesView() };
+  });
+
   // ------------------------------------------------------- control center ---
   // One place to see what TheOne may do on this computer and what it has done, and one switch that turns
   // all of it off. Everything here only reads, or turns things off (the safe direction): nothing is asked.
-  const activityFiles = { terminalAudit: path.join(app.getPath('userData'), 'terminal-audit.jsonl'), mcpAudit: mcpAuditFile, computerLog: computerRecords.log };
+  const activityFiles = { terminalAudit: path.join(app.getPath('userData'), 'terminal-audit.jsonl'), mcpAudit: mcpAuditFile, computerLog: computerRecords.log, filesJournal: filesJournal.file };
   const controlCenterView = (limit) => {
     const servers = settings.mcpServers;
     const computerState = settings.computer;
     return {
       terminal: { ...settings.terminal },
       mcp: { servers: servers.length, enabledServers: servers.filter((server) => server.enabled).length, enabledTools: servers.reduce((sum, server) => sum + (server.enabled ? server.enabledTools.length : 0), 0) },
+      files: { enabled: settings.files.enabled, folders: settings.files.folders.length },
       computer: { enabled: computerState.enabled, apps: computerState.apps.length, captureSupported: computerProvider.supported === true, halted: computerSessions.halted },
       folders: settings.workspaces.length,
       activity: readActivity({ ...activityFiles, limit }),
@@ -845,7 +911,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
   };
   handle('desktop:controlCenter', async (limit) => controlCenterView(limit));
   handle('desktop:disableAllLocal', async () => {
-    const stopped = { terminal: settings.terminal.enabled, mcp: 0, computer: settings.computer.enabled };
+    const stopped = { terminal: settings.terminal.enabled, mcp: 0, computer: settings.computer.enabled, files: settings.files.enabled };
     // The page can no longer send a command: the bridge checks this setting on every call, so no restart is needed.
     settings.setTerminalEnabled(false);
     for (const server of settings.mcpServers) {
@@ -857,6 +923,7 @@ function registerBridge({ runtime, settings, getWindow, openSettings, onSettings
     }
     computerSessions.stopAll();
     settings.setComputerEnabled(false);
+    settings.setFilesEnabled(false);
     return { stopped, view: controlCenterView(30) };
   });
   const computer = { stop: () => computerSessions.stopAll(), interrupt: () => computerSessions.interrupt(), sessions: computerSessions };

@@ -73,16 +73,28 @@ function fromMcp(entry) {
   };
 }
 
+function fromFiles(entry) {
+  const steps = Array.isArray(entry.steps) ? entry.steps.length : 0;
+  return {
+    at: when(entry.at), source: 'files',
+    title: `${steps} file operation${steps === 1 ? '' : 's'}${entry.undoneAt ? ' (undone)' : ''}`,
+    detail: clean(entry.root, 200),
+    outcome: entry.status === 'applied' ? 'ok' : 'failed',
+  };
+}
+
 function fromComputer(entry) {
   return { at: when(entry.at), source: 'computer', title: `${clean(entry.kind, 30)} · ${clean(entry.app, 80)}`, detail: '', outcome: 'ok' };
 }
 
 /** The newest activity across the three records. */
-function readActivity({ terminalAudit, mcpAudit, computerLog, limit = 50 } = {}) {
+function readActivity({ terminalAudit, mcpAudit, computerLog, filesJournal, limit = 50 } = {}) {
   const all = [
     ...(terminalAudit ? parse(tailLines(terminalAudit)).map(fromTerminal) : []),
     ...(mcpAudit ? parse(tailLines(mcpAudit)).map(fromMcp) : []),
     ...(computerLog ? parse(tailLines(computerLog)).map(fromComputer) : []),
+    // A request is a line with its steps; a later line only marks it undone, and is not a request of its own.
+    ...(filesJournal ? parse(tailLines(filesJournal)).filter((entry) => Array.isArray(entry.steps) && entry.at).map(fromFiles) : []),
   ].filter((item) => item.at > 0 && item.title);
   all.sort((a, b) => b.at - a.at);
   return all.slice(0, Math.max(1, Math.min(MAX_ITEMS, Number.isFinite(Number(limit)) ? Math.floor(Number(limit)) : 50)));
