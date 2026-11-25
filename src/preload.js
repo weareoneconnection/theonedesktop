@@ -61,6 +61,14 @@ if (allowed.includes(window.location.origin)) {
     /** What TheOne may do on this computer and what it has done (read only), and one switch that turns all of it off. */
     controlCenter: (limit) => ipcRenderer.invoke('desktop:controlCenter', limit),
     disableAllLocal: () => ipcRenderer.invoke('desktop:disableAllLocal'),
+    /**
+     * File management (move, copy, rename, new folder, trash) in folders turned on for it. Turning it on and undoing
+     * a request are confirmed in a native dialog; turning it off is not.
+     */
+    filesState: () => ipcRenderer.invoke('desktop:filesState'),
+    filesSetEnabled: (on) => ipcRenderer.invoke('desktop:filesSetEnabled', on),
+    filesSetFolder: (folder, on) => ipcRenderer.invoke('desktop:filesSetFolder', folder, on),
+    filesUndo: (id) => ipcRenderer.invoke('desktop:filesUndo', id),
     computerState: () => ipcRenderer.invoke('desktop:computerState'),
     computerSetEnabled: (on) => ipcRenderer.invoke('desktop:computerSetEnabled', on),
     computerAddApp: (name) => ipcRenderer.invoke('desktop:computerAddApp', name),

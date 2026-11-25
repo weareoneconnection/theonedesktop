@@ -73,6 +73,34 @@ class Settings {
     return this.terminal;
   }
 
+  // ------------------------------------------------------------------- files ---
+  // File management (move, copy, rename, make a folder, send to the trash) in opened folders the person
+  // turned it on for. Off until turned on here; both choices are confirmed in a native dialog (bridge.js).
+
+  get files() {
+    const saved = this.data.files && typeof this.data.files === 'object' ? this.data.files : {};
+    const opened = new Set(this.workspaces);
+    const folders = (Array.isArray(saved.folders) ? saved.folders : []).filter((folder) => opened.has(folder));
+    return { enabled: saved.enabled === true, folders };
+  }
+
+  setFilesEnabled(enabled) {
+    const current = this.files;
+    this.data.files = { enabled: Boolean(enabled), folders: enabled ? current.folders : [] };
+    this.save();
+    return this.files;
+  }
+
+  setFilesFolder(folder, on) {
+    const value = String(folder || '');
+    if (!this.workspaces.includes(value)) throw new Error('That folder is not opened in TheOne.');
+    const current = this.files;
+    const folders = on ? [value, ...current.folders.filter((item) => item !== value)] : current.folders.filter((item) => item !== value);
+    this.data.files = { enabled: current.enabled, folders };
+    this.save();
+    return this.files;
+  }
+
   // ---------------------------------------------------------------- computer use ---
   // Letting TheOne look at chosen applications: off until the person turns it on here, and then
   // only the applications they add one by one. Both are confirmed in a native dialog (bridge.js).

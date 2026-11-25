@@ -18,6 +18,7 @@ const KNOWN_CAPABILITIES = Object.freeze([
   'runtimeProvenanceV2',
   'terminalV1',
   'mcpV1',
+  'filesV1',
   // Known, not yet advertised: it is only turned on once a window capture has been verified on a real Mac.
   'computerReadV1',
 ]);
@@ -30,6 +31,7 @@ const SUPPORTED_CAPABILITIES = Object.freeze([
   'runtimeProvenanceV1',
   'terminalV1',
   'mcpV1',
+  'filesV1',
 ]);
 
 function bridgeContract(provenance, { signingAvailable = true } = {}) {
